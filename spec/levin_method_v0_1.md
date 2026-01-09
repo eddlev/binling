@@ -8,6 +8,8 @@ Each Capsule contains a Policy Core consisting of:
 
 Q0: CORE_INTENT — the goal this capsule must achieve (per capsule; value varies by capsule origin: human operator, governing AI, cron job, automation pipeline step).
 
+CORE_INTENT is treated as an opaque value by the execution layer; its internal structure is not interpreted by the Levin VM and is only subject to canonicalization and hashing.
+
 Q1: SCOPE_FILTER — the sandbox/border defining what classes of operations, targets, and data are allowed or denied.
 
 Q2: HARD_CONSTRAINTS — rules governing behavior within the sandbox.
@@ -63,6 +65,8 @@ Each capsule is an atomic executable unit (“node/dot”).
 
 Capsules are structured by Q-axis strata:
 
+A tightening is defined as any restriction that reduces the allowed operational surface relative to Q1; any expansion of scope constitutes a violation.
+
 Q0 CORE_INTENT (sealed)
 
 Q1 SCOPE_FILTER (sealed)
@@ -99,6 +103,8 @@ ACTIVATE_NEIGHBOR(dx,dy,dz) — activate a capsule at relative offset from the c
 
 2.5 Scheduling and determinism
 
+Capsules activated during execution are scheduled for execution in the next scheduling cycle, not the current one.
+
 Active capsules are scheduled deterministically using:
 
 PRIORITY ascending (0 is highest priority)
@@ -134,6 +140,8 @@ verification fails (fail-closed)
 2.8 Conflict rules (v0.1 strictness)
 
 If capsule execution causes conflicting effects (e.g., two active capsules attempt to write the same protected state/key within the same scheduling epoch), the VM must FAIL CLOSED unless an explicit, deterministic conflict rule exists in Policy Core or a globally pinned runtime rule-set.
+
+Protected state refers to any state or resource designated as non-mergeable by the runtime or Policy Core.
 
 Default for v0.1: FAIL on conflict.
 
