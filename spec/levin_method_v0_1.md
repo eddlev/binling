@@ -1,3 +1,5 @@
+> Status: Draft — targeting BinLing v0.1 specification freeze.
+
 Levin Method v0.1
 1) Levin Policy Core v0.1
 1.1 Definition
