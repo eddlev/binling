@@ -1,3 +1,5 @@
+> Status: Draft — targeting BinLing v0.1 specification freeze.
+
 # BinLing Encoding v0.1 (BLE)
 
 This document defines the **normative wire-level encoding** for BinLing capsules (BLE: BinLing Encoding).
