@@ -97,6 +97,7 @@ A capsule is a fixed-size byte array of length `CAPACITY_BYTES = N³`:
 
 ### 6.1 Fixed Header Fields
 The capsule header is **fixed-layout** for v0.1.
+HEADER_LEN allows future versions to extend the header while preserving backward-compatible decoding in v0.1.
 The header begins at offset 0.
 
 | Field | Type | Size | Description |
@@ -187,6 +188,7 @@ If `POLICY_CORE_HASH` cannot be reproduced exactly by the verifier, execution **
 **Hash coverage rule (v0.1):**
 - `CAPSULE_HASH` MUST be the SHA-256 of the entire capsule byte array of length `CAPACITY_BYTES`,
   **with the CAPSULE_HASH field itself treated as 32 zero bytes during hashing**.
+  All other header fields MUST be included verbatim in hash computation.
 
 Rationale:
 - This allows a stable “hash-of-whole-capsule” without recursive dependency.
