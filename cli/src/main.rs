@@ -36,7 +36,22 @@ fn main() {
             capsule_hash: [0; 32],
         },
         policy_core: vec![],
-        payload: vec![],
+
+        // GENETIC CODE:
+        // 1. INC (R0 becomes 1)
+        // 2. INC (R0 becomes 2)
+        // 3. LOG (Print "2")
+        // 4. INC (R0 becomes 3)
+        // 5. LOG (Print "3")
+        // 6. HALT
+        payload: vec![
+            0x12, // INC
+            0x12, // INC
+            0x20, // LOG
+            0x12, // INC
+            0x20, // LOG
+            0xFF, // HALT
+        ],
     };
 
     // 3. Test the Codec (Serialization)
