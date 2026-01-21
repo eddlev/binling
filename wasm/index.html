@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BinLing WASM Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+        }
+
+        .log {
+            border-left: 2px solid #4caf50;
+            padding-left: 10px;
+            margin-bottom: 5px;
+        }
+
+        .error {
+            border-left: 2px solid #f44336;
+            color: #f44336;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>BinLing Engine v0.1 (WASM)</h1>
+    <div id="output">Initializing...</div>
+
+    <script type="module">
+        // Import the generated JS glue code
+        import init, { lib_version, js_create_dummy_capsule, js_inspect_capsule_id } from './pkg/binling_wasm.js';
+
+        async function run() {
+            const out = document.getElementById('output');
+            const log = (msg) => out.innerHTML += `<div class="log">> ${msg}</div>`;
+
+            try {
+                // 1. Initialize the WASM module
+                await init();
+                log(`WASM Loaded successfully.`);
+
+                // 2. Check Version
+                const ver = lib_version();
+                log(`Engine Version: ${ver}`);
+
+                // 3. Create a Capsule in Rust (via JS)
+                log(`Creating Test Capsule (ID: 777)...`);
+                const bytes = js_create_dummy_capsule(777);
+                log(`Received ${bytes.length} bytes from Rust.`);
+                log(`Raw Bytes: [${bytes.subarray(0, 10).join(', ')}...]`);
+
+                // 4. Send Bytes back to Rust to decode
+                log(`Sending bytes back for inspection...`);
+                const id = js_inspect_capsule_id(bytes);
+
+                if (id === 777) {
+                    log(`SUCCESS! Decoded ID matches: ${id}`);
+                } else {
+                    log(`<span class="error">FAILURE! Expected 777, got ${id}</span>`);
+                }
+
+            } catch (e) {
+                out.innerHTML += `<div class="log error">CRITICAL ERROR: ${e}</div>`;
+                console.error(e);
+            }
+        }
+
+        run();
+    </script>
+</body>
+
+</html>
