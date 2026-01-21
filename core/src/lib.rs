@@ -1,4 +1,5 @@
 pub mod capsules;
+pub mod codec;
 pub mod vm;
 
 pub fn version() -> &'static str {
