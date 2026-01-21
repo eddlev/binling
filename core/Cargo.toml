@@ -1,0 +1,17 @@
+[package]
+name = "binling_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+sha2 = "0.10"  # For POLICY_CORE_HASH enforcement
+hex = "0.4"
+
+[dev-dependencies]
+criterion = "0.5" # For the benchmarks you committed
+
+[[bench]]
+name = "codec_bench"
+harness = false
