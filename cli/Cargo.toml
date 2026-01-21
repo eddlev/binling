@@ -1,0 +1,9 @@
+[package]
+name = "binling_cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+binling_core = { path = "../core" }
+clap = { version = "4.4", features = ["derive"] } # Command line argument parsing
+anyhow = "1.0"
