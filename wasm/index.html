@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BinLing Monitor</title>
+    <title>BinLing Visualizer</title>
     <style>
         body {
             background-color: #0d1117;
@@ -16,109 +16,133 @@
             justify-content: center;
             height: 100vh;
             margin: 0;
+            overflow: hidden;
         }
 
         h1 {
             color: #58a6ff;
-            margin-bottom: 10px;
+            margin: 10px 0;
+            font-size: 1.2em;
         }
 
-        #dashboard {
-            border: 1px solid #30363d;
+        /* The Radar Screen */
+        #viewport {
+            border: 2px solid #30363d;
             background: #161b22;
-            padding: 40px;
-            border-radius: 8px;
-            text-align: center;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-            min-width: 300px;
+            box-shadow: 0 0 30px rgba(88, 166, 255, 0.1);
+            border-radius: 4px;
         }
 
-        .metric {
-            font-size: 2em;
-            font-weight: bold;
-            color: #3fb950;
-            margin: 20px 0;
-        }
-
-        .label {
-            font-size: 0.8em;
-            color: #8b949e;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-
-        #status-line {
-            margin-top: 20px;
-            color: #8b949e;
+        #stats-bar {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
             font-size: 0.9em;
+            color: #8b949e;
         }
 
-        .blink {
-            animation: blinker 1s linear infinite;
+        .val {
+            color: #3fb950;
+            font-weight: bold;
         }
 
-        @keyframes blinker {
-            50% {
-                opacity: 0.5;
-            }
+        .offline {
+            color: #ff7b72;
         }
     </style>
 </head>
 
 <body>
 
-    <div id="dashboard">
-        <h1>📡 BinLing Remote View</h1>
+    <h1>📡 BinLing Lattice Radar</h1>
 
-        <div class="label">Server Cycle</div>
-        <div id="cycle-count" class="metric">--</div>
+    <canvas id="viewport" width="600" height="600"></canvas>
 
-        <div class="label">Active Organisms</div>
-        <div id="cell-count" class="metric">--</div>
-
-        <div id="status-line">Connecting to Node...</div>
+    <div id="stats-bar">
+        <span>STATUS: <span id="status" class="offline">OFFLINE</span></span>
+        <span>CYCLE: <span id="cycle" class="val">--</span></span>
+        <span>CELLS: <span id="count" class="val">--</span></span>
     </div>
 
     <script>
-        const statusDiv = document.getElementById("status-line");
-        const cycleDiv = document.getElementById("cycle-count");
-        const cellDiv = document.getElementById("cell-count");
+        const canvas = document.getElementById("viewport");
+        const ctx = canvas.getContext("2d");
+        const statusEl = document.getElementById("status");
+        const cycleEl = document.getElementById("cycle");
+        const countEl = document.getElementById("count");
+
+        // Viewport Settings
+        const ZOOM = 4;
+        const CENTER_X = canvas.width / 2;
+        const CENTER_Y = canvas.height / 2;
 
         function connect() {
-            // Connect to our new CLI WebSocket Port
-            const socket = new WebSocket("ws://localhost:8081");
+            const socket = new WebSocket("ws://127.0.0.1:8081");
 
             socket.onopen = () => {
-                statusDiv.innerText = "LINK ESTABLISHED. LISTENING...";
-                statusDiv.style.color = "#3fb950"; // Green
-                statusDiv.classList.add("blink");
+                statusEl.innerText = "ONLINE";
+                statusEl.className = "val";
+                statusEl.style.color = "#3fb950";
             };
 
             socket.onmessage = (event) => {
-                // Server sends: "Cycle:100|Active:5"
-                const data = event.data;
-                const parts = data.split('|');
+                try {
+                    // Parse the JSON from Server
+                    const data = JSON.parse(event.data);
 
-                if (parts.length >= 2) {
-                    const cycle = parts[0].split(':')[1];
-                    const active = parts[1].split(':')[2] || parts[1].split(':')[1]; // Handle variations
+                    // Update Text
+                    cycleEl.innerText = data.cycle;
+                    countEl.innerText = data.active_count;
 
-                    cycleDiv.innerText = cycle;
-                    cellDiv.innerText = active;
+                    // Draw Frame
+                    draw(data.cells);
+
+                } catch (e) {
+                    console.error("Data Error:", e);
                 }
             };
 
             socket.onclose = () => {
-                statusDiv.innerText = "CONNECTION LOST. RECONNECTING...";
-                statusDiv.style.color = "#ff7b72"; // Red
-                statusDiv.classList.remove("blink");
-                setTimeout(connect, 3000); // Try again in 3 seconds
+                statusEl.innerText = "OFFLINE";
+                statusEl.className = "offline";
+                statusEl.style.color = "#ff7b72";
+                setTimeout(connect, 3000);
             };
+        }
 
-            socket.onerror = (err) => {
-                console.error("Socket error", err);
-                socket.close();
-            };
+        function getColorForZ(z) {
+            // Brightness = Depth
+            let lightness = 50 + (z * 2);
+            if (lightness < 20) lightness = 20;
+            if (lightness > 90) lightness = 90;
+            return `hsl(210, 100%, ${lightness}%)`;
+        }
+
+        function draw(cells) {
+            // 1. Clear Screen
+            ctx.fillStyle = "#161b22";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 2. Draw Grid Lines
+            ctx.strokeStyle = "#21262d";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(CENTER_X, 0); ctx.lineTo(CENTER_X, canvas.height);
+            ctx.moveTo(0, CENTER_Y); ctx.lineTo(canvas.width, CENTER_Y);
+            ctx.stroke();
+
+            // 3. Draw Cells (Sorted by Depth)
+            cells.sort((a, b) => a[2] - b[2]);
+
+            cells.forEach(pos => {
+                // pos is [x, y, z]
+                const x = CENTER_X + (pos[0] * ZOOM);
+                const y = CENTER_Y + (pos[1] * ZOOM);
+                const z = pos[2];
+
+                ctx.fillStyle = getColorForZ(z);
+                ctx.fillRect(x, y, 4, 4);
+            });
         }
 
         connect();

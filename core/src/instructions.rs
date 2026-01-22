@@ -1,39 +1,30 @@
 use serde::{Deserialize, Serialize};
 
-// The Genetic Alphabet (Spec v0.1 Section 3)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum OpCode {
-    // === 0x00: Lifecycle ===
-    NOOP = 0x00, // Do nothing (Energy save)
-    HALT = 0xFF, // Stop execution immediately
-
-    // === 0x10: Arithmetic (The "Metabolism") ===
-    ADD = 0x10, // Register[0] = Register[0] + Register[1]
-    SUB = 0x11, // Register[0] = Register[0] - Register[1]
-    INC = 0x12, // Register[0]++
-    DEC = 0x13, // Register[0]--
-
-    // === 0x20: I/O (The "Senses") ===
-    LOG = 0x20, // Print Register[0] to CLI (Debug)
-
-    // === 0x30: Biological (Reproduction) ===
-    SPAWN = 0x30, // Copy self to Next Queue
+    NOOP = 0,
+    HALT = 1,
+    ADD = 2,
+    SUB = 3,
+    INC = 4,
+    DEC = 5,
+    LOG = 6,
+    SPAWN = 7, // <--- CRITICAL: Must be 7 to match Client
 }
 
 impl OpCode {
-    // The Decoder: Raw Byte -> Meaning
-    pub fn from_u8(byte: u8) -> Option<Self> {
-        match byte {
-            0x00 => Some(OpCode::NOOP),
-            0xFF => Some(OpCode::HALT),
-            0x10 => Some(OpCode::ADD),
-            0x11 => Some(OpCode::SUB),
-            0x12 => Some(OpCode::INC),
-            0x13 => Some(OpCode::DEC),
-            0x20 => Some(OpCode::LOG),
-            0x30 => Some(OpCode::SPAWN),
-            _ => None, // "Junk DNA" (Unknown instruction)
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(OpCode::NOOP),
+            1 => Some(OpCode::HALT),
+            2 => Some(OpCode::ADD),
+            3 => Some(OpCode::SUB),
+            4 => Some(OpCode::INC),
+            5 => Some(OpCode::DEC),
+            6 => Some(OpCode::LOG),
+            7 => Some(OpCode::SPAWN),
+            _ => None,
         }
     }
 }

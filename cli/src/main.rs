@@ -1,139 +1,118 @@
-mod ws_server; // Import the new module
-
 use binling_core::capsules::Capsule;
 use binling_core::vm::LatticeVM;
-use std::path::Path;
+use serde_json::json;
+use std::sync::{Arc, Mutex};
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, mpsc}; // We use both channel types now
+use tokio::sync::broadcast;
+
+mod ws_server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== BinLing CLI v{} (Node) ===", binling_core::version());
-    println!("Initializing Levin Lattice VM...");
+    println!("=== BinLing CLI v0.1.0 (Node) ===");
 
-    // --- CHANNEL 1: INPUT (TCP -> VM) ---
-    // MPSC: Multiple producers (clients), Single consumer (VM)
-    let (tx_input, mut rx_input) = mpsc::channel::<Capsule>(100);
-
-    // --- CHANNEL 2: OUTPUT (VM -> WebSockets) ---
-    // Broadcast: Single producer (VM), Multiple consumers (browsers)
-    let (tx_status, _) = broadcast::channel::<String>(16);
-
-    // --- SYSTEM 1: TCP SERVER (Port 4000) ---
-    let tx_for_tcp = tx_input.clone();
-    tokio::spawn(async move {
-        let addr = "127.0.0.1:4000";
-        println!("> [NET] TCP Node listening on {}...", addr);
-        let listener = TcpListener::bind(addr).await.expect("Failed to bind TCP");
-
-        loop {
-            let (mut socket, _) = listener.accept().await.expect("Accept error");
-            let tx = tx_for_tcp.clone();
-
-            tokio::spawn(async move {
-                use binling_core::net::{recv_message, send_message, NetMessage};
-
-                // Handshake
-                if let Ok(NetMessage::Hello { .. }) = recv_message(&mut socket).await {
-                    let _ = send_message(
-                        &mut socket,
-                        &NetMessage::Welcome {
-                            server_version: "0.1.0".to_string(),
-                        },
-                    )
-                    .await;
-                }
-
-                // Capsule Loop
-                loop {
-                    if let Ok(NetMessage::InjectCapsule(capsule)) = recv_message(&mut socket).await
-                    {
-                        println!(
-                            "  >> [NET] Recv Capsule {}. Forwarding...",
-                            capsule.header.capsule_id
-                        );
-
-                        // Send to VM
-                        if let Err(_) = tx.send(capsule.clone()).await {
-                            break;
-                        }
-
-                        // Send Receipt (The Boomerang)
-                        let mut receipt = capsule;
-                        receipt.header.capsule_id += 10000;
-                        let _ =
-                            send_message(&mut socket, &NetMessage::InjectCapsule(receipt)).await;
-                    } else {
-                        break;
-                    }
-                }
-            });
+    // 1. Initialize VM
+    let vm = match LatticeVM::load_world("universe.bin") {
+        Ok(loaded_vm) => {
+            println!("> [VAULT] Universe Loaded.");
+            Arc::new(Mutex::new(loaded_vm))
         }
-    });
+        Err(_) => {
+            println!("> [VAULT] New World Created.");
+            Arc::new(Mutex::new(LatticeVM::new()))
+        }
+    };
 
-    // --- SYSTEM 2: WEBSOCKET GATEWAY (Port 8081) ---
+    // 2. Setup Broadcast
+    let (tx_status, _rx_status) = broadcast::channel(100); // Increased buffer size
+
+    // 3. Start WS Server
     let tx_for_ws = tx_status.clone();
     tokio::spawn(async move {
         if let Err(e) = ws_server::start_ws_server(tx_for_ws).await {
-            println!("> [ERR] WebSocket Server failed: {}", e);
+            eprintln!("WS Server Error: {}", e);
         }
     });
 
-    // --- SYSTEM 3: THE VM (The Heart) ---
-    let mut vm;
-    if Path::new("universe.bin").exists() {
-        match LatticeVM::load_world("universe.bin") {
-            Ok(v) => {
-                vm = v;
-                println!("> [VAULT] World Loaded. Cycle {}.", vm.cycle_count);
-            }
-            Err(_) => {
-                vm = LatticeVM::new();
-                println!("> [VAULT] Load failed. New World.");
+    // 4. Start TCP Listener (Capsule Receiver)
+    let listener = TcpListener::bind("127.0.0.1:4000").await?;
+    println!("> [NET] TCP Node listening on 127.0.0.1:4000...");
+
+    let vm_for_net = vm.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let vm_clone = vm_for_net.clone();
+                tokio::spawn(async move {
+                    let mut buffer = Vec::new();
+                    if let Ok(_) = socket.read_to_end(&mut buffer).await {
+                        if !buffer.is_empty() {
+                            if let Ok(c) = bincode::deserialize::<Capsule>(&buffer) {
+                                println!(
+                                    ">> [NET] Recv Capsule {}. Forwarding...",
+                                    c.header.capsule_id
+                                );
+                                let mut locked_vm = vm_clone.lock().unwrap();
+                                locked_vm.activate(c);
+                            }
+                        }
+                    }
+                });
             }
         }
-    } else {
-        println!("> [VAULT] New World Created.");
-        vm = LatticeVM::new();
-    }
+    });
 
-    println!("> [VM] Core Online. Pulse 100ms.");
+    println!("> [WS-NET] Gateway active on: ws://127.0.0.1:8081");
+    println!("> [SYSTEM] Core Loop Running...");
+
     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
 
-    // The Infinite Loop
+    // 5. THE FIXED LOOP
     loop {
-        tokio::select! {
-            // EVENT A: Capsule Arrived via TCP
-            maybe_capsule = rx_input.recv() => {
-                if let Some(c) = maybe_capsule {
-                    println!("> [VM] INJECTING Capsule {}...", c.header.capsule_id);
-                    vm.activate(c);
-                }
+        // A. SLEEP FIRST (Releases lock implicitly because we haven't grabbed it yet)
+        interval.tick().await;
+
+        // B. LOCK & COMPUTE
+        {
+            let mut vm = vm.lock().unwrap();
+
+            // Broadcast every cycle for smooth visuals
+            if true {
+                // Use next_queue to show the "Resting State" of the universe
+                let cell_data: Vec<(i32, i32, i32)> = vm
+                    .next_queue
+                    .iter()
+                    .map(|c| {
+                        (
+                            c.header.coord_x as i32,
+                            c.header.coord_y as i32,
+                            c.header.coord_z as i32,
+                        )
+                    })
+                    .collect();
+
+                let payload = json!({
+                    "cycle": vm.cycle_count,
+                    "active_count": vm.next_queue.len(),
+                    "cells": cell_data
+                });
+
+                // We ignore errors if nobody is listening
+                let _ = tx_status.send(payload.to_string());
             }
 
-            // EVENT B: Heartbeat Tick
-            _ = interval.tick() => {
-                if !vm.is_void() {
-                    vm.next_cycle();
-
-                    // 1. Broadcast Status to WebSockets (Every 5 cycles)
-                    if vm.cycle_count % 5 == 0 {
-                        let status = format!("Cycle:{}|Active:{}", vm.cycle_count, vm.active_queue.len());
-                        // Send but don't crash if no browsers are connected
-                        let _ = tx_status.send(status);
-                    }
-
-                    // 2. Stats Log (Every 50 cycles)
-                    if vm.cycle_count % 50 == 0 {
-                        println!("> [STATS] Cycle {}: Active Cells = {}", vm.cycle_count, vm.active_queue.len());
-                    }
-
-                    // 3. Auto-Save (Every 50 cycles)
-                    if vm.cycle_count % 50 == 0 {
-                        let _ = vm.save_world("universe.bin");
-                    }
+            // Advance Physics
+            if !vm.is_void() {
+                vm.next_cycle();
+                if vm.cycle_count % 50 == 0 {
+                    println!(
+                        "> [STATS] Cycle {}: Active Cells = {}",
+                        vm.cycle_count,
+                        vm.next_queue.len()
+                    );
                 }
             }
-        }
+        } // Lock is released here immediately
     }
 }

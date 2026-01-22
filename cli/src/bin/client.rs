@@ -1,81 +1,75 @@
 use binling_core::capsules::{Capsule, CapsuleHeader, SquareSpace};
-use binling_core::net::{recv_message, send_message, NetMessage};
-use tokio::net::TcpStream;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::thread;
+use std::time::Duration;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr = "127.0.0.1:4000";
-    println!("=== BinLing Client (Teleporter) ===");
-    println!("> Connecting to Node at {}...", addr);
+fn main() -> std::io::Result<()> {
+    println!("=== BinLing Client (Blindfire Mode) ===");
 
-    // 1. Connect
-    let mut socket = TcpStream::connect(addr).await?;
-    println!("> [CONNECTED] Socket open.");
+    // 1. Connect to the Server
+    println!("> Connecting to Node at 127.0.0.1:4000...");
+    let mut stream = TcpStream::connect("127.0.0.1:4000")?;
 
-    // 2. Handshake
-    let hello = NetMessage::Hello {
-        version: "0.1.0".to_string(),
-        node_id: 999,
-    };
-    send_message(&mut socket, &hello).await?;
+    // Set timeouts to prevent hanging
+    stream.set_read_timeout(Some(Duration::from_millis(500)))?;
+    stream.set_write_timeout(Some(Duration::from_millis(500)))?;
 
-    // 3. Wait for Welcome
-    match recv_message(&mut socket).await {
-        Ok(NetMessage::Welcome { .. }) => println!("> [SUCCESS] Handshake Verified."),
-        _ => panic!("> [ERR] Server was rude."),
-    }
+    println!("> [CONNECTED] Socket open. Bypassing handshake...");
 
-    // 4. PREPARE THE CARGO (A Capsule)
-    println!("> [GENETICS] Constructing Capsule...");
-    let cargo = Capsule {
+    // 2. SKIP HANDSHAKE
+    // We assume the server is listening.
+
+    // 3. Construct the "Architect" Capsule
+    println!("> [GENETICS] Constructing Architect Payload...");
+
+    // 4,096 SPAWN instructions (0x07)
+    // This forces the Kernel to spawn 1 brick per cycle for 4096 cycles.
+    let payload = vec![7u8; 4096];
+
+    let capsule = Capsule {
         header: CapsuleHeader {
             magic: *b"BLE1",
             version_major: 0,
             version_minor: 1,
             flags: 0,
+            capsule_id: 777, // Kernel ID
             ss_n: SquareSpace::SS64,
             priority: 10,
-            header_len: 0,
+            coord_x: 0,
+            coord_y: 0,
+            coord_z: 0,
+            header_len: 122,
             policy_len: 0,
-            payload_len: 0,
+            payload_len: payload.len() as u32,
             pad_len: 0,
-            coord_x: 50,
-            coord_y: 50,
-            coord_z: 50,     // Destination Coordinates
-            capsule_id: 777, // Lucky Number
             dict_hash: [0; 32],
             policy_core_hash: [0; 32],
             capsule_hash: [0; 32],
         },
         policy_core: vec![],
-        payload: vec![0x12, 0x20, 0x30, 0xFF], // The "Life" Code (INC, LOG, SPAWN, HALT)
+        payload,
     };
 
-    // 5. TELEPORT
-    println!(
-        "> [SEND] Teleporting Capsule ID {}...",
-        cargo.header.capsule_id
-    );
-    let msg = NetMessage::InjectCapsule(cargo);
-    send_message(&mut socket, &msg).await?;
+    // 4. Serialize
+    let encoded = bincode::serialize(&capsule).expect("Failed to serialize");
 
-    // --- NEW: WAIT FOR RECEIPT ---
-    println!("> [WAIT] Waiting for confirmation from Server...");
+    // 5. Send Immediately with Force Push
+    println!("> [SEND] Teleporting Capsule ({} bytes)...", encoded.len());
+    stream.write_all(&encoded)?;
+    stream.flush()?; // Ensure data leaves the buffer
+    println!("> [SENT] Payload delivered.");
 
-    match recv_message(&mut socket).await {
-        Ok(NetMessage::InjectCapsule(receipt)) => {
-            println!("\n> [BOOMERANG] SERVER RETURNED CAPSULE!");
-            println!("> [CHECK] Original ID: 777");
-            println!("> [CHECK] Returned ID: {}", receipt.header.capsule_id);
+    // 6. Polite Pause
+    // Give the server 100ms to ingest the data before we kill the connection.
+    thread::sleep(Duration::from_millis(100));
 
-            if receipt.header.capsule_id == 10777 {
-                println!("> [SUCCESS] Full Round-Trip Verified.");
-            } else {
-                println!("> [WARN] ID mismatch.");
-            }
+    // Optional: Peek for response (don't block if none)
+    let mut response_buffer = Vec::new();
+    if let Ok(_) = stream.read_to_end(&mut response_buffer) {
+        if !response_buffer.is_empty() {
+            println!("> [ACK] Server acknowledged receipt.");
         }
-        Ok(msg) => println!("> [ERR] Unexpected response: {:?}", msg),
-        Err(e) => println!("> [ERR] Server disconnected: {}", e),
     }
 
     println!("> [DONE] Disconnecting.");
