@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# We explicitly request "cli-mode" for the desktop app
+# The Core Logic (Heavy Mode)
 binling_core = { path = "../core", features = ["cli-mode"] }
 
-# ... (Keep your other dependencies like tokio for the CLI itself) ...
+# The Runtime
 tokio = { version = "1", features = ["full"] }
+
+# WebSocket Support (NEW)
+tokio-tungstenite = "0.20"
+futures-util = "0.3"

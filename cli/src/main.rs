@@ -1,28 +1,34 @@
+mod ws_server; // Import the new module
+
 use binling_core::capsules::Capsule;
 use binling_core::vm::LatticeVM;
 use std::path::Path;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc}; // We use both channel types now
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== BinLing CLI v{} (Node) ===", binling_core::version());
     println!("Initializing Levin Lattice VM...");
 
-    // 1. Create Channel
-    let (tx, mut rx) = mpsc::channel::<Capsule>(100);
+    // --- CHANNEL 1: INPUT (TCP -> VM) ---
+    // MPSC: Multiple producers (clients), Single consumer (VM)
+    let (tx_input, mut rx_input) = mpsc::channel::<Capsule>(100);
 
-    // 2. Start Network (Background)
-    let tx_for_network = tx.clone();
+    // --- CHANNEL 2: OUTPUT (VM -> WebSockets) ---
+    // Broadcast: Single producer (VM), Multiple consumers (browsers)
+    let (tx_status, _) = broadcast::channel::<String>(16);
+
+    // --- SYSTEM 1: TCP SERVER (Port 4000) ---
+    let tx_for_tcp = tx_input.clone();
     tokio::spawn(async move {
         let addr = "127.0.0.1:4000";
-        println!("> [NET] Binding to {}...", addr);
-        let listener = TcpListener::bind(addr).await.expect("Failed to bind port");
-        println!("> [NET] Listening for peers...");
+        println!("> [NET] TCP Node listening on {}...", addr);
+        let listener = TcpListener::bind(addr).await.expect("Failed to bind TCP");
 
         loop {
-            let (mut socket, _peer_addr) = listener.accept().await.expect("Accept error");
-            let tx_for_connection = tx_for_network.clone();
+            let (mut socket, _) = listener.accept().await.expect("Accept error");
+            let tx = tx_for_tcp.clone();
 
             tokio::spawn(async move {
                 use binling_core::net::{recv_message, send_message, NetMessage};
@@ -46,11 +52,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             "  >> [NET] Recv Capsule {}. Forwarding...",
                             capsule.header.capsule_id
                         );
-                        if let Err(_) = tx_for_connection.send(capsule.clone()).await {
+
+                        // Send to VM
+                        if let Err(_) = tx.send(capsule.clone()).await {
                             break;
                         }
 
-                        // Receipt
+                        // Send Receipt (The Boomerang)
                         let mut receipt = capsule;
                         receipt.header.capsule_id += 10000;
                         let _ =
@@ -63,65 +71,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // 3. THE VAULT: Try to Load Existing World
+    // --- SYSTEM 2: WEBSOCKET GATEWAY (Port 8081) ---
+    let tx_for_ws = tx_status.clone();
+    tokio::spawn(async move {
+        if let Err(e) = ws_server::start_ws_server(tx_for_ws).await {
+            println!("> [ERR] WebSocket Server failed: {}", e);
+        }
+    });
+
+    // --- SYSTEM 3: THE VM (The Heart) ---
     let mut vm;
     if Path::new("universe.bin").exists() {
-        println!("> [VAULT] Found existing universe. Loading...");
         match LatticeVM::load_world("universe.bin") {
-            Ok(loaded_vm) => {
-                vm = loaded_vm;
-                println!("> [VAULT] Success! Resuming from Cycle {}.", vm.cycle_count);
+            Ok(v) => {
+                vm = v;
+                println!("> [VAULT] World Loaded. Cycle {}.", vm.cycle_count);
             }
-            Err(e) => {
-                println!("> [VAULT] Load failed ({}). Creating new Big Bang.", e);
+            Err(_) => {
                 vm = LatticeVM::new();
+                println!("> [VAULT] Load failed. New World.");
             }
         }
     } else {
-        println!("> [VAULT] No universe found. Creating new Big Bang.");
+        println!("> [VAULT] New World Created.");
         vm = LatticeVM::new();
     }
 
-    println!("> [VM] Core Online. Pulse set to 100ms.");
+    println!("> [VM] Core Online. Pulse 100ms.");
     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
 
-    // 4. The Loop of Life (With Auto-Save)
+    // The Infinite Loop
     loop {
         tokio::select! {
-            // Network Event
-            maybe_capsule = rx.recv() => {
-                match maybe_capsule {
-                    Some(new_capsule) => {
-                        println!("> [VM] INJECTING Capsule {}...", new_capsule.header.capsule_id);
-                        vm.activate(new_capsule);
-                    }
-                    None => break,
+            // EVENT A: Capsule Arrived via TCP
+            maybe_capsule = rx_input.recv() => {
+                if let Some(c) = maybe_capsule {
+                    println!("> [VM] INJECTING Capsule {}...", c.header.capsule_id);
+                    vm.activate(c);
                 }
             }
 
-            // Heartbeat Event
+            // EVENT B: Heartbeat Tick
             _ = interval.tick() => {
                 if !vm.is_void() {
                     vm.next_cycle();
 
-                    // Stats Log (Every 10 cycles)
-                    if vm.cycle_count % 10 == 0 {
+                    // 1. Broadcast Status to WebSockets (Every 5 cycles)
+                    if vm.cycle_count % 5 == 0 {
+                        let status = format!("Cycle:{}|Active:{}", vm.cycle_count, vm.active_queue.len());
+                        // Send but don't crash if no browsers are connected
+                        let _ = tx_status.send(status);
+                    }
+
+                    // 2. Stats Log (Every 50 cycles)
+                    if vm.cycle_count % 50 == 0 {
                         println!("> [STATS] Cycle {}: Active Cells = {}", vm.cycle_count, vm.active_queue.len());
                     }
 
-                    // AUTO-SAVE (Every 50 cycles / ~5 seconds)
+                    // 3. Auto-Save (Every 50 cycles)
                     if vm.cycle_count % 50 == 0 {
-                        print!("> [VAULT] Saving Universe... ");
-                        if let Err(e) = vm.save_world("universe.bin") {
-                            println!("Failed: {}", e);
-                        } else {
-                            println!("Saved.");
-                        }
+                        let _ = vm.save_world("universe.bin");
                     }
                 }
             }
         }
     }
-
-    Ok(())
 }
