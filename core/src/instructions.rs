@@ -16,6 +16,9 @@ pub enum OpCode {
 
     // === 0x20: I/O (The "Senses") ===
     LOG = 0x20, // Print Register[0] to CLI (Debug)
+
+    // === 0x30: Biological (Reproduction) ===
+    SPAWN = 0x30, // Copy self to Next Queue
 }
 
 impl OpCode {
@@ -29,6 +32,7 @@ impl OpCode {
             0x12 => Some(OpCode::INC),
             0x13 => Some(OpCode::DEC),
             0x20 => Some(OpCode::LOG),
+            0x30 => Some(OpCode::SPAWN),
             _ => None, // "Junk DNA" (Unknown instruction)
         }
     }

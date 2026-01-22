@@ -14,7 +14,7 @@ fn main() {
         if vm.is_void() { "VOID" } else { "ACTIVE" }
     );
 
-    // 2. Create a Dummy Capsule
+    // 2. Create a Dummy Capsule (The "Adam" Capsule)
     let dummy = Capsule {
         header: CapsuleHeader {
             magic: *b"BLE1",
@@ -36,20 +36,15 @@ fn main() {
             capsule_hash: [0; 32],
         },
         policy_core: vec![],
-
         // GENETIC CODE:
-        // 1. INC (R0 becomes 1)
-        // 2. INC (R0 becomes 2)
-        // 3. LOG (Print "2")
-        // 4. INC (R0 becomes 3)
-        // 5. LOG (Print "3")
-        // 6. HALT
+        // 1. INC (R0 = 1)
+        // 2. LOG (Print 1)
+        // 3. SPAWN (Create a child)
+        // 4. HALT (Mother dies)
         payload: vec![
             0x12, // INC
-            0x12, // INC
             0x20, // LOG
-            0x12, // INC
-            0x20, // LOG
+            0x30, // SPAWN
             0xFF, // HALT
         ],
     };
@@ -59,7 +54,6 @@ fn main() {
     match LatticeCodec::encode(&dummy) {
         Ok(bytes) => {
             println!("  [OK] Encoded size: {} bytes", bytes.len());
-            // ASCII 66=B, 76=L, 69=E, 49=1
             println!(
                 "  [OK] First 4 bytes: {:?} (Should be [66, 76, 69, 49])",
                 &bytes[0..4]
@@ -75,15 +69,24 @@ fn main() {
     );
     vm.activate(dummy);
 
-    // 5. Step the Cycle
-    println!("> Stepping Cycle...");
-    vm.next_cycle();
+    // 5. Run the Simulation for 3 Cycles (The Loop of Life)
+    println!("> Starting Life Simulation (3 Cycles)...");
 
-    // 6. Verify State
-    println!("=== Cycle {} Summary ===", vm.cycle_count);
-    println!("Active Queue: {} capsule(s)", vm.active_queue.len());
+    for _ in 0..3 {
+        println!("\n--------------------------------");
+        println!("> Stepping Cycle {}...", vm.cycle_count + 1);
 
-    if let Some(cap) = vm.active_queue.first() {
-        println!("> Executing Capsule ID: {}", cap.header.capsule_id);
-    }
+        // Run the cycle
+        vm.next_cycle();
+
+        // Report
+        println!("=== Cycle {} Summary ===", vm.cycle_count);
+        println!("  Active Population: {} capsule(s)", vm.active_queue.len());
+        println!("  Next Generation:   {} capsule(s)", vm.next_queue.len());
+
+        // Print who is running
+        if let Some(cap) = vm.active_queue.first() {
+            println!("  [Trace] Currently Running: Cap {}", cap.header.capsule_id);
+        }
+    } // End of For Loop
 }

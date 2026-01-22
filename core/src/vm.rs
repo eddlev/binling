@@ -1,8 +1,8 @@
 use crate::capsules::Capsule;
 use crate::instructions::OpCode;
-// Remove unused imports if any, keeping it clean for now
 
 // The Levin Lattice VM (Spec v0.1 Section 2)
+// 1 implementation
 pub struct LatticeVM {
     // The Active Queue: Capsules executing in the CURRENT cycle
     pub active_queue: Vec<Capsule>,
@@ -52,53 +52,70 @@ impl LatticeVM {
         });
 
         // 4. EXECUTE (The "Brain")
-        // We iterate through all active capsules and run their code
-        // We use a separate index to avoid borrowing issues while mutating the VM
+        // We create a "Birth Queue" to hold babies created during this cycle
+        // This avoids fighting the Borrow Checker over 'self.next_queue'
+        let mut birth_queue: Vec<Capsule> = Vec::new();
+
         for i in 0..self.active_queue.len() {
-            // Clone the capsule to execute it (simplification for v0.1)
+            // Clone the capsule to execute it
             let mut capsule = self.active_queue[i].clone();
-            self.execute_capsule(&mut capsule);
-            // In a real version, we might update the capsule state here
+
+            // Pass the birth_queue into the execution environment
+            self.execute_capsule(&mut capsule, &mut birth_queue);
         }
+
+        // 5. Move babies to the Next Queue (End of Cycle)
+        self.next_queue.append(&mut birth_queue);
     }
 
-    // The Interpreter Loop (Spec v0.1 Section 3)
-    fn execute_capsule(&mut self, capsule: &mut Capsule) {
-        let mut pc = 0; // Program Counter (Instruction Pointer)
+    // The Interpreter Loop (Now with Reproduction capabilities)
+    // NOTICE: We now accept 'birth_queue' as an argument
+    fn execute_capsule(&mut self, capsule: &mut Capsule, birth_queue: &mut Vec<Capsule>) {
+        let mut pc = 0; // Program Counter
 
         while pc < capsule.payload.len() {
             let op_byte = capsule.payload[pc];
             pc += 1;
 
-            // Decode Byte -> OpCode
             if let Some(op) = OpCode::from_u8(op_byte) {
                 match op {
-                    OpCode::NOOP => {}     // Do nothing
-                    OpCode::HALT => break, // Stop executing this capsule
+                    OpCode::NOOP => {}
+                    OpCode::HALT => break,
 
-                    // Arithmetic (Metabolism)
+                    // Metabolism (Math)
                     OpCode::ADD => {
-                        // R0 = R0 + R1
-                        self.registers[0] = self.registers[0].wrapping_add(self.registers[1]);
+                        self.registers[0] = self.registers[0].wrapping_add(self.registers[1])
                     }
                     OpCode::SUB => {
-                        self.registers[0] = self.registers[0].wrapping_sub(self.registers[1]);
+                        self.registers[0] = self.registers[0].wrapping_sub(self.registers[1])
                     }
-                    OpCode::INC => {
-                        // R0++
-                        self.registers[0] = self.registers[0].wrapping_add(1);
-                    }
-                    OpCode::DEC => {
-                        // R0--
-                        self.registers[0] = self.registers[0].wrapping_sub(1);
-                    }
+                    OpCode::INC => self.registers[0] = self.registers[0].wrapping_add(1),
+                    OpCode::DEC => self.registers[0] = self.registers[0].wrapping_sub(1),
 
-                    // I/O (Senses)
+                    // Senses (Output)
                     OpCode::LOG => {
                         println!(
                             "VM [Cycle {} | Cap {}]: R0 = {}",
                             self.cycle_count, capsule.header.capsule_id, self.registers[0]
                         );
+                    }
+
+                    // REPRODUCTION (Mitosis)
+                    OpCode::SPAWN => {
+                        // A. Clone the Mother
+                        let mut daughter = capsule.clone();
+
+                        // B. Mutate Identity (New ID = Old ID + 1000 for visibility)
+                        daughter.header.capsule_id += 1000;
+
+                        // C. Log the miracle
+                        println!(
+                            ">> [MITOSIS] Cap {} spawned Cap {}!",
+                            capsule.header.capsule_id, daughter.header.capsule_id
+                        );
+
+                        // D. Place into the Birth Queue
+                        birth_queue.push(daughter);
                     }
                 }
             }
