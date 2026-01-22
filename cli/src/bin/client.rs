@@ -1,42 +1,64 @@
+use binling_core::capsules::{Capsule, CapsuleHeader, SquareSpace};
 use binling_core::net::{recv_message, send_message, NetMessage};
 use tokio::net::TcpStream;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = "127.0.0.1:4000";
-    println!("=== BinLing Client Test ===");
+    println!("=== BinLing Client (Teleporter) ===");
     println!("> Connecting to Node at {}...", addr);
 
-    // 1. Connect to the Server
+    // 1. Connect
     let mut socket = TcpStream::connect(addr).await?;
     println!("> [CONNECTED] Socket open.");
 
-    // 2. Say Hello
+    // 2. Handshake
     let hello = NetMessage::Hello {
         version: "0.1.0".to_string(),
-        node_id: 999, // We are Node 999
+        node_id: 999,
     };
-
-    println!("> [SEND] Sending Handshake: {:?}", hello);
     send_message(&mut socket, &hello).await?;
 
     // 3. Wait for Welcome
-    println!("> [WAIT] Waiting for reply...");
     match recv_message(&mut socket).await {
-        Ok(NetMessage::Welcome { server_version }) => {
-            println!("> [SUCCESS] Handshake Complete!");
-            println!(
-                "> Server says: 'Welcome! I am running version {}'",
-                server_version
-            );
-        }
-        Ok(msg) => {
-            println!("> [ERR] Unexpected response: {:?}", msg);
-        }
-        Err(e) => {
-            println!("> [ERR] Failed to receive reply: {}", e);
-        }
+        Ok(NetMessage::Welcome { .. }) => println!("> [SUCCESS] Handshake Verified."),
+        _ => panic!("> [ERR] Server was rude."),
     }
 
+    // 4. PREPARE THE CARGO (A Capsule)
+    println!("> [GENETICS] Constructing Capsule...");
+    let cargo = Capsule {
+        header: CapsuleHeader {
+            magic: *b"BLE1",
+            version_major: 0,
+            version_minor: 1,
+            flags: 0,
+            ss_n: SquareSpace::SS64,
+            priority: 10,
+            header_len: 0,
+            policy_len: 0,
+            payload_len: 0,
+            pad_len: 0,
+            coord_x: 50,
+            coord_y: 50,
+            coord_z: 50,     // Destination Coordinates
+            capsule_id: 777, // Lucky Number
+            dict_hash: [0; 32],
+            policy_core_hash: [0; 32],
+            capsule_hash: [0; 32],
+        },
+        policy_core: vec![],
+        payload: vec![0x12, 0x20, 0x30, 0xFF], // The "Life" Code (INC, LOG, SPAWN, HALT)
+    };
+
+    // 5. TELEPORT
+    println!(
+        "> [SEND] Teleporting Capsule ID {}...",
+        cargo.header.capsule_id
+    );
+    let msg = NetMessage::InjectCapsule(cargo);
+    send_message(&mut socket, &msg).await?;
+
+    println!("> [DONE] Payload delivered. Disconnecting.");
     Ok(())
 }
