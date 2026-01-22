@@ -1,22 +1,19 @@
-use binling_core::capsules::{Capsule, CapsuleHeader, SquareSpace};
+use binling_core::capsules::Capsule;
 use binling_core::vm::LatticeVM;
+use std::path::Path;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc; // <--- NEW: The Channel Tool
+use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== BinLing CLI v{} (Node) ===", binling_core::version());
     println!("Initializing Levin Lattice VM...");
 
-    // 1. Create the Communication Channel
-    // (tx = Transmitter, rx = Receiver)
-    // Buffer size 100 means we can hold 100 capsules in the "Mailbox" before we stop accepting more.
+    // 1. Create Channel
     let (tx, mut rx) = mpsc::channel::<Capsule>(100);
 
-    // 2. Start the Network Listener in the BACKGROUND
-    // We clone the transmitter 'tx' so the background task can send mail to the main thread.
+    // 2. Start Network (Background)
     let tx_for_network = tx.clone();
-
     tokio::spawn(async move {
         let addr = "127.0.0.1:4000";
         println!("> [NET] Binding to {}...", addr);
@@ -24,14 +21,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("> [NET] Listening for peers...");
 
         loop {
-            let (mut socket, peer_addr) = listener.accept().await.expect("Accept error");
-            // Clone the transmitter again for THIS specific connection
+            let (mut socket, _peer_addr) = listener.accept().await.expect("Accept error");
             let tx_for_connection = tx_for_network.clone();
 
             tokio::spawn(async move {
                 use binling_core::net::{recv_message, send_message, NetMessage};
 
-                // Handshake (Simplified for brevity)
+                // Handshake
                 if let Ok(NetMessage::Hello { .. }) = recv_message(&mut socket).await {
                     let _ = send_message(
                         &mut socket,
@@ -42,69 +38,89 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .await;
                 }
 
-                // Listen for Capsules
+                // Capsule Loop
                 loop {
                     if let Ok(NetMessage::InjectCapsule(capsule)) = recv_message(&mut socket).await
                     {
                         println!(
-                            "  >> [NET] Recv Capsule {}. Forwarding to VM...",
+                            "  >> [NET] Recv Capsule {}. Forwarding...",
                             capsule.header.capsule_id
                         );
-
-                        // 1. Send to VM (Internal)
                         if let Err(_) = tx_for_connection.send(capsule.clone()).await {
-                            // Note: We use .clone() now because we need to keep a copy to send back!
-                            println!("  >> [ERR] VM is dead/closed.");
                             break;
                         }
 
-                        // 2. Send Receipt back to Client (External) - THE BOOMERANG
-                        // We will modify the ID to show it was processed
-                        let mut receipt = capsule; // Move the original variable here
-                        receipt.header.capsule_id += 10000; // Flag it as processed
-
-                        println!(
-                            "  >> [NET] Sending Receipt (Cap {}) back to peer...",
-                            receipt.header.capsule_id
-                        );
-                        if let Err(e) =
-                            send_message(&mut socket, &NetMessage::InjectCapsule(receipt)).await
-                        {
-                            println!("  >> [ERR] Failed to send receipt: {}", e);
-                        }
+                        // Receipt
+                        let mut receipt = capsule;
+                        receipt.header.capsule_id += 10000;
+                        let _ =
+                            send_message(&mut socket, &NetMessage::InjectCapsule(receipt)).await;
                     } else {
-                        break; // Disconnected
+                        break;
                     }
                 }
             });
         }
     });
 
-    // 3. The Main VM Loop (The Consumer)
-    // This runs on the main thread and owns the VM data.
-    let mut vm = LatticeVM::new();
-    println!("> [VM] Core Online. Waiting for capsules from network...");
+    // 3. THE VAULT: Try to Load Existing World
+    let mut vm;
+    if Path::new("universe.bin").exists() {
+        println!("> [VAULT] Found existing universe. Loading...");
+        match LatticeVM::load_world("universe.bin") {
+            Ok(loaded_vm) => {
+                vm = loaded_vm;
+                println!("> [VAULT] Success! Resuming from Cycle {}.", vm.cycle_count);
+            }
+            Err(e) => {
+                println!("> [VAULT] Load failed ({}). Creating new Big Bang.", e);
+                vm = LatticeVM::new();
+            }
+        }
+    } else {
+        println!("> [VAULT] No universe found. Creating new Big Bang.");
+        vm = LatticeVM::new();
+    }
 
-    // We cycle forever. In a real engine, this would be a high-speed loop.
-    // For now, we will wait for mail, then run a cycle.
-    while let Some(new_capsule) = rx.recv().await {
-        println!(
-            "> [VM] Mail received! Loading Capsule {}...",
-            new_capsule.header.capsule_id
-        );
+    println!("> [VM] Core Online. Pulse set to 100ms.");
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
 
-        // A. Inject
-        vm.activate(new_capsule);
+    // 4. The Loop of Life (With Auto-Save)
+    loop {
+        tokio::select! {
+            // Network Event
+            maybe_capsule = rx.recv() => {
+                match maybe_capsule {
+                    Some(new_capsule) => {
+                        println!("> [VM] INJECTING Capsule {}...", new_capsule.header.capsule_id);
+                        vm.activate(new_capsule);
+                    }
+                    None => break,
+                }
+            }
 
-        // B. Run a Cycle
-        println!("> [VM] Running Cycle...");
-        vm.next_cycle();
+            // Heartbeat Event
+            _ = interval.tick() => {
+                if !vm.is_void() {
+                    vm.next_cycle();
 
-        // C. Report
-        println!(
-            "> [VM] Cycle Complete. Active Cells: {}",
-            vm.active_queue.len()
-        );
+                    // Stats Log (Every 10 cycles)
+                    if vm.cycle_count % 10 == 0 {
+                        println!("> [STATS] Cycle {}: Active Cells = {}", vm.cycle_count, vm.active_queue.len());
+                    }
+
+                    // AUTO-SAVE (Every 50 cycles / ~5 seconds)
+                    if vm.cycle_count % 50 == 0 {
+                        print!("> [VAULT] Saving Universe... ");
+                        if let Err(e) = vm.save_world("universe.bin") {
+                            println!("Failed: {}", e);
+                        } else {
+                            println!("Saved.");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Ok(())

@@ -1,8 +1,12 @@
 use crate::capsules::Capsule;
 use crate::instructions::OpCode;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::{self, Read, Write};
 
 // The Levin Lattice VM (Spec v0.1 Section 2)
-// 1 implementation
+// Now with Persistence capabilities!
+#[derive(Serialize, Deserialize)] // <--- NEW: Allows the whole VM to be saved
 pub struct LatticeVM {
     // The Active Queue: Capsules executing in the CURRENT cycle
     pub active_queue: Vec<Capsule>,
@@ -13,8 +17,7 @@ pub struct LatticeVM {
     // Global Clock
     pub cycle_count: u64,
 
-    // NEW: 4 General Purpose Registers (R0, R1, R2, R3)
-    // This is the VM's "Short Term Memory"
+    // General Purpose Registers (R0, R1, R2, R3)
     pub registers: [i32; 4],
 }
 
@@ -27,6 +30,37 @@ impl LatticeVM {
             registers: [0; 4],
         }
     }
+
+    // --- PERSISTENCE (The Vault) ---
+
+    // Save the entire universe to a binary file
+    pub fn save_world(&self, filename: &str) -> io::Result<()> {
+        // 1. Serialize memory to bytes
+        // We use bincode for speed and compactness
+        let encoded: Vec<u8> =
+            bincode::serialize(&self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        // 2. Write to disk
+        let mut file = File::create(filename)?;
+        file.write_all(&encoded)?;
+        Ok(())
+    }
+
+    // Load a universe from a binary file
+    pub fn load_world(filename: &str) -> io::Result<Self> {
+        // 1. Read from disk
+        let mut file = File::open(filename)?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
+
+        // 2. Deserialize bytes to memory
+        let decoded: Self =
+            bincode::deserialize(&buffer).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        Ok(decoded)
+    }
+
+    // --- EXECUTION CORE ---
 
     // Spec v0.1 Section 2.4: Activation Primitive
     pub fn activate(&mut self, capsule: Capsule) {
@@ -52,24 +86,18 @@ impl LatticeVM {
         });
 
         // 4. EXECUTE (The "Brain")
-        // We create a "Birth Queue" to hold babies created during this cycle
-        // This avoids fighting the Borrow Checker over 'self.next_queue'
         let mut birth_queue: Vec<Capsule> = Vec::new();
 
         for i in 0..self.active_queue.len() {
-            // Clone the capsule to execute it
             let mut capsule = self.active_queue[i].clone();
-
-            // Pass the birth_queue into the execution environment
             self.execute_capsule(&mut capsule, &mut birth_queue);
         }
 
-        // 5. Move babies to the Next Queue (End of Cycle)
+        // 5. Move babies to the Next Queue
         self.next_queue.append(&mut birth_queue);
     }
 
-    // The Interpreter Loop (Now with Reproduction capabilities)
-    // NOTICE: We now accept 'birth_queue' as an argument
+    // The Interpreter Loop
     fn execute_capsule(&mut self, capsule: &mut Capsule, birth_queue: &mut Vec<Capsule>) {
         let mut pc = 0; // Program Counter
 
@@ -102,19 +130,12 @@ impl LatticeVM {
 
                     // REPRODUCTION (Mitosis)
                     OpCode::SPAWN => {
-                        // A. Clone the Mother
                         let mut daughter = capsule.clone();
-
-                        // B. Mutate Identity (New ID = Old ID + 1000 for visibility)
                         daughter.header.capsule_id += 1000;
-
-                        // C. Log the miracle
                         println!(
                             ">> [MITOSIS] Cap {} spawned Cap {}!",
                             capsule.header.capsule_id, daughter.header.capsule_id
                         );
-
-                        // D. Place into the Birth Queue
                         birth_queue.push(daughter);
                     }
                 }
@@ -122,7 +143,6 @@ impl LatticeVM {
         }
     }
 
-    // Helper to see if we hit the VOID boundary
     pub fn is_void(&self) -> bool {
         self.active_queue.is_empty() && self.next_queue.is_empty()
     }
