@@ -3,6 +3,20 @@
 **Status:** Definition Phase (Targeting v0.1 Implementation)
 
 This directory contains the specifications for the **normative benchmark suite** of the BinLing language and Levin VM.
+
+**Disclaimer:**
+Architectural Concepts
+While BinLing uses biological terminology ("Mitosis", "DNA", "Capsule") to describe its architecture, it is strictly a **Deterministic Virtual Machine**.
+
+| Biological Metaphor | Technical Reality |
+| :--- | :--- |
+| **Capsule** | Self-contained Process / Actor |
+| **Payload (DNA)** | Bytecode Instruction Stream |
+| **Mitosis** | Recursive Process Forking |
+| **Lattice** | Distributed Mesh Network / DHT |
+
+This naming convention captures the system's *resilience* and *autonomy*, not its implementation.
+
 To ensure credibility, all benchmarks defined here must be:
 1.  **Runnable**: Must compile and execute.
 2.  **Reproducible**: Must use statistical harnessing (Criterion.rs).
