@@ -1,113 +1,95 @@
 use binling_core::capsules::{Capsule, CapsuleHeader, SquareSpace};
 use binling_core::vm::LatticeVM;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc; // <--- NEW: The Channel Tool
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== BinLing CLI v{} (Node) ===", binling_core::version());
     println!("Initializing Levin Lattice VM...");
 
-    // 1. Initialize the VM
-    let mut vm = LatticeVM::new();
+    // 1. Create the Communication Channel
+    // (tx = Transmitter, rx = Receiver)
+    // Buffer size 100 means we can hold 100 capsules in the "Mailbox" before we stop accepting more.
+    let (tx, mut rx) = mpsc::channel::<Capsule>(100);
 
-    // Boot Check (Warm-up)
-    let dummy = Capsule {
-        header: CapsuleHeader {
-            magic: *b"BLE1",
-            version_major: 0,
-            version_minor: 1,
-            flags: 0,
-            ss_n: SquareSpace::SS64,
-            priority: 10,
-            header_len: 0,
-            policy_len: 0,
-            payload_len: 0,
-            pad_len: 0,
-            coord_x: 0,
-            coord_y: 0,
-            coord_z: 0,
-            capsule_id: 1,
-            dict_hash: [0; 32],
-            policy_core_hash: [0; 32],
-            capsule_hash: [0; 32],
-        },
-        policy_core: vec![],
-        payload: vec![0x12, 0x20, 0xFF], // INC, LOG, HALT
-    };
-    vm.activate(dummy);
-    vm.next_cycle();
-    println!("> [Boot Check] VM warm-up complete.\n");
+    // 2. Start the Network Listener in the BACKGROUND
+    // We clone the transmitter 'tx' so the background task can send mail to the main thread.
+    let tx_for_network = tx.clone();
 
-    // --- PHASE 2 - NETWORKING ---
+    tokio::spawn(async move {
+        let addr = "127.0.0.1:4000";
+        println!("> [NET] Binding to {}...", addr);
+        let listener = TcpListener::bind(addr).await.expect("Failed to bind port");
+        println!("> [NET] Listening for peers...");
 
-    // 2. Define the Port
-    let addr = "127.0.0.1:4000";
-    println!("> Binding to Lattice Network on {}...", addr);
+        loop {
+            let (mut socket, peer_addr) = listener.accept().await.expect("Accept error");
+            // Clone the transmitter again for THIS specific connection
+            let tx_for_connection = tx_for_network.clone();
 
-    // 3. Open the Socket (RESTORED THIS PART)
-    let listener = TcpListener::bind(addr).await?;
-    println!("> [LISTENING] Node is ready. Waiting for peers...");
+            tokio::spawn(async move {
+                use binling_core::net::{recv_message, send_message, NetMessage};
 
-    // 4. The Server Loop (RESTORED THIS PART)
-    loop {
-        // Wait for a new connection
-        let (mut socket, peer_addr) = listener.accept().await?;
-        println!("> [NEW CONNECTION] Peer joined from: {}", peer_addr);
-
-        // Spawn a background task to handle this specific connection
-        tokio::spawn(async move {
-            use binling_core::net::{recv_message, send_message, NetMessage};
-
-            println!("  [CONN] Handling peer: {}", peer_addr);
-
-            // --- STEP 1: HANDSHAKE ---
-            match recv_message(&mut socket).await {
-                Ok(NetMessage::Hello { version, node_id }) => {
-                    println!(
-                        "  [HANDSHAKE] Received HELLO from Node {} (v{})",
-                        node_id, version
-                    );
-
-                    // Send Welcome
-                    let reply = NetMessage::Welcome {
-                        server_version: binling_core::version().to_string(),
-                    };
-                    if let Err(e) = send_message(&mut socket, &reply).await {
-                        println!("  [ERR] Failed to send Welcome: {}", e);
-                        return;
-                    }
+                // Handshake (Simplified for brevity)
+                if let Ok(NetMessage::Hello { .. }) = recv_message(&mut socket).await {
+                    let _ = send_message(
+                        &mut socket,
+                        &NetMessage::Welcome {
+                            server_version: "0.1.0".to_string(),
+                        },
+                    )
+                    .await;
                 }
-                Ok(msg) => {
-                    println!("  [ERR] Protocol violation. Expected Hello, got {:?}", msg);
-                    return;
-                }
-                Err(e) => {
-                    println!("  [ERR] Handshake failed: {}", e);
-                    return;
-                }
-            }
 
-            // --- STEP 2: MAIN LOOP (The Cargo Bay) ---
-            loop {
-                match recv_message(&mut socket).await {
-                    Ok(NetMessage::InjectCapsule(capsule)) => {
+                // Listen for Capsules
+                loop {
+                    if let Ok(NetMessage::InjectCapsule(capsule)) = recv_message(&mut socket).await
+                    {
                         println!(
-                            "\n  >> [TELEPORT] RECEIVED CAPSULE ID: {}",
+                            "  >> [NET] Recv Capsule {}. Forwarding to VM...",
                             capsule.header.capsule_id
                         );
-                        println!(
-                            "  >> [ANALYSIS] Payload Size: {} bytes",
-                            capsule.payload.len()
-                        );
-                        println!("  >> [ACTION] Queueing for execution...");
-                    }
-                    Ok(msg) => println!("  [INFO] Received other message: {:?}", msg),
-                    Err(_) => {
-                        println!("  [CONN] Peer {} disconnected.", peer_addr);
-                        break; // Exit loop
+
+                        // SEND TO VM!
+                        if let Err(_) = tx_for_connection.send(capsule).await {
+                            println!("  >> [ERR] VM is dead/closed.");
+                            break;
+                        }
+                    } else {
+                        break; // Disconnected
                     }
                 }
-            }
-        });
+            });
+        }
+    });
+
+    // 3. The Main VM Loop (The Consumer)
+    // This runs on the main thread and owns the VM data.
+    let mut vm = LatticeVM::new();
+    println!("> [VM] Core Online. Waiting for capsules from network...");
+
+    // We cycle forever. In a real engine, this would be a high-speed loop.
+    // For now, we will wait for mail, then run a cycle.
+    while let Some(new_capsule) = rx.recv().await {
+        println!(
+            "> [VM] Mail received! Loading Capsule {}...",
+            new_capsule.header.capsule_id
+        );
+
+        // A. Inject
+        vm.activate(new_capsule);
+
+        // B. Run a Cycle
+        println!("> [VM] Running Cycle...");
+        vm.next_cycle();
+
+        // C. Report
+        println!(
+            "> [VM] Cycle Complete. Active Cells: {}",
+            vm.active_queue.len()
+        );
     }
+
+    Ok(())
 }
