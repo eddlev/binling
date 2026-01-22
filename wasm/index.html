@@ -4,68 +4,117 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BinLing WASM Test</title>
+    <title>BinLing Lattice</title>
     <style>
         body {
-            font-family: monospace;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 20px;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
         }
 
-        .log {
-            border-left: 2px solid #4caf50;
-            padding-left: 10px;
-            margin-bottom: 5px;
+        h1 {
+            color: #58a6ff;
+            margin-bottom: 10px;
         }
 
-        .error {
-            border-left: 2px solid #f44336;
-            color: #f44336;
+        #dashboard {
+            border: 1px solid #30363d;
+            background: #161b22;
+            padding: 40px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            min-width: 300px;
+        }
+
+        .metric {
+            font-size: 2em;
+            font-weight: bold;
+            color: #3fb950;
+            margin: 20px 0;
+        }
+
+        .label {
+            font-size: 0.8em;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        #status-line {
+            margin-top: 20px;
+            color: #8b949e;
+            font-size: 0.9em;
         }
     </style>
 </head>
 
 <body>
-    <h1>BinLing Engine v0.1 (WASM)</h1>
-    <div id="output">Initializing...</div>
+
+    <div id="dashboard">
+        <h1>🧬 BinLing Web Node</h1>
+
+        <div class="label">Active Organisms</div>
+        <div id="cell-count" class="metric">--</div>
+
+        <div class="label">World Age (Cycles)</div>
+        <div id="cycle-count" class="metric">--</div>
+
+        <div id="status-line">Initializing WebAssembly Core...</div>
+    </div>
 
     <script type="module">
-        // Import the generated JS glue code
-        import init, { lib_version, js_create_dummy_capsule, js_inspect_capsule_id } from './pkg/binling_wasm.js';
+        import init, { WebLattice } from './pkg/binling_wasm.js';
 
         async function run() {
-            const out = document.getElementById('output');
-            const log = (msg) => out.innerHTML += `<div class="log">> ${msg}</div>`;
-
             try {
-                // 1. Initialize the WASM module
+                console.log("Loading WASM...");
                 await init();
-                log(`WASM Loaded successfully.`);
+                console.log("WASM Loaded.");
 
-                // 2. Check Version
-                const ver = lib_version();
-                log(`Engine Version: ${ver}`);
+                const statusDiv = document.getElementById("status-line");
+                statusDiv.innerText = "Core Online. Running Simulation.";
+                statusDiv.style.color = "#3fb950"; // Green for success
 
-                // 3. Create a Capsule in Rust (via JS)
-                log(`Creating Test Capsule (ID: 777)...`);
-                const bytes = js_create_dummy_capsule(777);
-                log(`Received ${bytes.length} bytes from Rust.`);
-                log(`Raw Bytes: [${bytes.subarray(0, 10).join(', ')}...]`);
+                console.log("Creating Universe...");
+                const lattice = new WebLattice();
 
-                // 4. Send Bytes back to Rust to decode
-                log(`Sending bytes back for inspection...`);
-                const id = js_inspect_capsule_id(bytes);
+                const cellCountDiv = document.getElementById("cell-count");
+                const cycleCountDiv = document.getElementById("cycle-count");
 
-                if (id === 777) {
-                    log(`SUCCESS! Decoded ID matches: ${id}`);
-                } else {
-                    log(`<span class="error">FAILURE! Expected 777, got ${id}</span>`);
-                }
+                // Start Loop
+                setInterval(() => {
+                    // 1. Tick
+                    lattice.tick();
+
+                    // 2. Read Status string from Rust
+                    const status = lattice.get_status();
+
+                    // 3. Update UI
+                    // Parse "Cycle: 10 | Active: 1..."
+                    const parts = status.split('|');
+                    if (parts.length > 0) {
+                        // Extract number from "Cycle: 123"
+                        cycleCountDiv.innerText = parts[0].split(':')[1].trim();
+                    }
+                    cellCountDiv.innerText = lattice.get_active_cell_count();
+
+                }, 100);
 
             } catch (e) {
-                out.innerHTML += `<div class="log error">CRITICAL ERROR: ${e}</div>`;
-                console.error(e);
+                console.error("CRITICAL FAILURE:", e);
+                // Ensure the element exists before trying to write error
+                const statusDiv = document.getElementById("status-line");
+                if (statusDiv) {
+                    statusDiv.innerText = "Error: " + e.message;
+                    statusDiv.style.color = "#ff7b72";
+                }
             }
         }
 

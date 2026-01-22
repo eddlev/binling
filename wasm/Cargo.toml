@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 wasm-bindgen = "0.2"
-serde = { version = "1.0", features = ["derive"] }
-serde-wasm-bindgen = "0.6" # For passing complex objects (JSON/Capsules) to JS
 binling_core = { path = "../core" }
+console_error_panic_hook = "0.1"
 
-[dev-dependencies]
-wasm-bindgen-test = "0.3"
+# --- NEW SECTION: Disable Optimizer ---
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

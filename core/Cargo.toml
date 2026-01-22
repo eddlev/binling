@@ -4,17 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Always needed (Data structures)
 serde = { version = "1.0", features = ["derive"] }
-thiserror = "1.0"
-sha2 = "0.10"  # For POLICY_CORE_HASH enforcement
-hex = "0.4"
-bincode = "1.3.3"
-anyhow = "1.0.100"
-tokio = { version = "1.49.0", features = ["full"] }
 
-[dev-dependencies]
-criterion = "0.5" # For the benchmarks you committed
+# Optional: Only needed for CLI (Networking & Files)
+tokio = { version = "1", features = ["full"], optional = true }
+bincode = { version = "1", optional = true }
 
-[[bench]]
-name = "codec_bench"
-harness = false
+[features]
+# By default, we are "Pure" (WASM safe)
+default = []
+
+# We define a "cli-mode" that turns on the heavy tools
+cli-mode = ["dep:tokio", "dep:bincode"]

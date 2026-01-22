@@ -1,51 +1,77 @@
 use binling_core::capsules::{Capsule, CapsuleHeader, SquareSpace};
-use binling_core::codec::LatticeCodec;
+use binling_core::vm::LatticeVM;
 use wasm_bindgen::prelude::*;
 
-// 1. Expose the Version to JS
-#[wasm_bindgen]
-pub fn lib_version() -> String {
-    binling_core::version().to_string()
+// This attribute makes the function run when the WASM module loads
+#[wasm_bindgen(start)]
+pub fn main_js() -> Result<(), JsValue> {
+    // This allows Rust panic messages to appear in the browser console (very helpful!)
+    console_error_panic_hook::set_once();
+    Ok(())
 }
 
-// 2. A JS-friendly wrapper to create a Test Capsule and get its bytes
-// (In a real app, we would pass arguments for x, y, z, etc.)
+// This struct will be exported to JavaScript class "WebLattice"
 #[wasm_bindgen]
-pub fn js_create_dummy_capsule(id: u32) -> Vec<u8> {
-    // Construct the Rust Struct
-    let cap = Capsule {
-        header: CapsuleHeader {
-            magic: *b"BLE1",
-            version_major: 0,
-            version_minor: 1,
-            flags: 0,
-            ss_n: SquareSpace::SS64,
-            priority: 1,
-            header_len: 0,
-            policy_len: 0,
-            payload_len: 0,
-            pad_len: 0,
-            coord_x: 10,
-            coord_y: 20,
-            coord_z: 30,
-            capsule_id: id,
-            dict_hash: [0; 32],
-            policy_core_hash: [0; 32],
-            capsule_hash: [0; 32],
-        },
-        policy_core: vec![],
-        payload: vec![0xAA, 0xBB, 0xCC], // Dummy payload
-    };
-
-    // Encode to Bytes (WASM will return this as a Uint8Array to JS)
-    LatticeCodec::encode(&cap).unwrap_or(vec![])
+pub struct WebLattice {
+    vm: LatticeVM,
 }
 
-// 3. A JS-friendly wrapper to Decode bytes and check the ID
 #[wasm_bindgen]
-pub fn js_inspect_capsule_id(data: &[u8]) -> i32 {
-    match LatticeCodec::decode(data) {
-        Ok(cap) => cap.header.capsule_id as i32,
-        Err(_) => -1, // Error Code
+impl WebLattice {
+    // Constructor: JS calls "new WebLattice()"
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WebLattice {
+        let mut vm = LatticeVM::new();
+
+        // Let's inject a "Genesis Capsule" just like in the CLI
+        let genesis = Capsule {
+            header: CapsuleHeader {
+                magic: *b"BLE1",
+                version_major: 0,
+                version_minor: 1,
+                flags: 0,
+                ss_n: SquareSpace::SS64,
+                priority: 10,
+                header_len: 0,
+                policy_len: 0,
+                payload_len: 0,
+                pad_len: 0,
+                coord_x: 0,
+                coord_y: 0,
+                coord_z: 0,
+                capsule_id: 1,
+                dict_hash: [0; 32],
+                policy_core_hash: [0; 32],
+                capsule_hash: [0; 32],
+            },
+            policy_core: vec![],
+            payload: vec![0x12, 0x30, 0xFF], // INC, SPAWN, HALT
+        };
+
+        vm.activate(genesis);
+
+        WebLattice { vm }
+    }
+
+    // JS calls "lattice.tick()"
+    pub fn tick(&mut self) {
+        if !self.vm.is_void() {
+            self.vm.next_cycle();
+        }
+    }
+
+    // JS calls "lattice.get_status()" to get a string report
+    pub fn get_status(&self) -> String {
+        format!(
+            "Cycle: {} | Active Cells: {} | Next Gen: {}",
+            self.vm.cycle_count,
+            self.vm.active_queue.len(),
+            self.vm.next_queue.len()
+        )
+    }
+
+    // JS calls "lattice.get_active_cell_count()"
+    pub fn get_active_cell_count(&self) -> usize {
+        self.vm.active_queue.len()
     }
 }
