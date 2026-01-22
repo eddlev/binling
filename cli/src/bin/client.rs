@@ -59,6 +59,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let msg = NetMessage::InjectCapsule(cargo);
     send_message(&mut socket, &msg).await?;
 
-    println!("> [DONE] Payload delivered. Disconnecting.");
+    // --- NEW: WAIT FOR RECEIPT ---
+    println!("> [WAIT] Waiting for confirmation from Server...");
+
+    match recv_message(&mut socket).await {
+        Ok(NetMessage::InjectCapsule(receipt)) => {
+            println!("\n> [BOOMERANG] SERVER RETURNED CAPSULE!");
+            println!("> [CHECK] Original ID: 777");
+            println!("> [CHECK] Returned ID: {}", receipt.header.capsule_id);
+
+            if receipt.header.capsule_id == 10777 {
+                println!("> [SUCCESS] Full Round-Trip Verified.");
+            } else {
+                println!("> [WARN] ID mismatch.");
+            }
+        }
+        Ok(msg) => println!("> [ERR] Unexpected response: {:?}", msg),
+        Err(e) => println!("> [ERR] Server disconnected: {}", e),
+    }
+
+    println!("> [DONE] Disconnecting.");
     Ok(())
 }

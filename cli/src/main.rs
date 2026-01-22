@@ -51,10 +51,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             capsule.header.capsule_id
                         );
 
-                        // SEND TO VM!
-                        if let Err(_) = tx_for_connection.send(capsule).await {
+                        // 1. Send to VM (Internal)
+                        if let Err(_) = tx_for_connection.send(capsule.clone()).await {
+                            // Note: We use .clone() now because we need to keep a copy to send back!
                             println!("  >> [ERR] VM is dead/closed.");
                             break;
+                        }
+
+                        // 2. Send Receipt back to Client (External) - THE BOOMERANG
+                        // We will modify the ID to show it was processed
+                        let mut receipt = capsule; // Move the original variable here
+                        receipt.header.capsule_id += 10000; // Flag it as processed
+
+                        println!(
+                            "  >> [NET] Sending Receipt (Cap {}) back to peer...",
+                            receipt.header.capsule_id
+                        );
+                        if let Err(e) =
+                            send_message(&mut socket, &NetMessage::InjectCapsule(receipt)).await
+                        {
+                            println!("  >> [ERR] Failed to send receipt: {}", e);
                         }
                     } else {
                         break; // Disconnected
