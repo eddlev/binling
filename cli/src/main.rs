@@ -1,10 +1,8 @@
 use binling_core::capsules::{Capsule, CapsuleHeader, SquareSpace};
-use binling_core::codec::LatticeCodec;
 use binling_core::vm::LatticeVM;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener; // <--- NEW: Networking tools
+use tokio::net::TcpListener;
 
-#[tokio::main] // <--- NEW: This macro starts the Async Runtime
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== BinLing CLI v{} (Node) ===", binling_core::version());
     println!("Initializing Levin Lattice VM...");
@@ -12,8 +10,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize the VM
     let mut vm = LatticeVM::new();
 
-    // --- (Keep the Simulation for sanity check) ---
-    // We create a quick dummy capsule just to prove the engine works on boot
+    // Boot Check (Warm-up)
     let dummy = Capsule {
         header: CapsuleHeader {
             magic: *b"BLE1",
@@ -38,39 +35,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         payload: vec![0x12, 0x20, 0xFF], // INC, LOG, HALT
     };
     vm.activate(dummy);
-    vm.next_cycle(); // Run once to warm up
+    vm.next_cycle();
     println!("> [Boot Check] VM warm-up complete.\n");
 
-    // --- NEW: PHASE 2 - NETWORKING ---
+    // --- PHASE 2 - NETWORKING ---
 
     // 2. Define the Port
     let addr = "127.0.0.1:4000";
     println!("> Binding to Lattice Network on {}...", addr);
 
-    // 3. Open the Socket (The Listener)
+    // 3. Open the Socket
     let listener = TcpListener::bind(addr).await?;
     println!("> [LISTENING] Node is ready. Waiting for peers...");
 
-    // 4. The Server Loop (Infinite)
+    // 4. The Server Loop
     loop {
-        // Wait for a new connection (this pauses execution until someone connects)
         let (mut socket, peer_addr) = listener.accept().await?;
         println!("> [NEW CONNECTION] Peer joined from: {}", peer_addr);
 
-        // Spawn a background task to handle this specific connection
-        // (This allows us to handle multiple peers at once)
         tokio::spawn(async move {
-            let mut buf = [0; 1024];
+            use binling_core::net::{recv_message, send_message, NetMessage};
 
-            // In a real app, we would read the Handshake here.
-            // For now, just read whatever they send and print it.
-            match socket.read(&mut buf).await {
-                Ok(n) if n == 0 => return, // Connection closed
-                Ok(n) => {
-                    println!("  [RECV] Received {} bytes from peer.", n);
-                    // TODO: Decode NetMessage here
+            println!("  [HANDSHAKE] Waiting for Hello from {}...", peer_addr);
+
+            // 1. Attempt to receive a message
+            match recv_message(&mut socket).await {
+                Ok(NetMessage::Hello { version, node_id }) => {
+                    println!(
+                        "  [HANDSHAKE] Received HELLO from Node {} (v{})",
+                        node_id, version
+                    );
+
+                    // 2. Send Welcome Back
+                    let reply = NetMessage::Welcome {
+                        server_version: binling_core::version().to_string(), // <-- Fixed type error
+                    };
+
+                    if let Err(e) = send_message(&mut socket, &reply).await {
+                        println!("  [ERR] Failed to send Welcome: {}", e);
+                    } else {
+                        println!("  [HANDSHAKE] Sent WELCOME. Connection established.");
+                    }
                 }
-                Err(e) => println!("  [ERR] Socket error: {}", e),
+                Ok(msg) => {
+                    println!("  [ERR] Expected Hello, got {:?} from {}", msg, peer_addr);
+                }
+                Err(e) => {
+                    println!("  [ERR] Connection failed or closed: {}", e);
+                }
             }
         });
     }
