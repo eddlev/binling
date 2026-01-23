@@ -73,7 +73,7 @@
         // Geometry Cache
         const geometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
 
-        // Materials (Standard + Royal Trinity)
+        // Materials (Standard + Royal Trinity + Oracle)
         const matGreen = new THREE.MeshBasicMaterial({ color: 0x2ea043, transparent: true, opacity: 0.9 }); // Core
         const matBlue = new THREE.MeshBasicMaterial({ color: 0x58a6ff, transparent: true, opacity: 0.6 }); // Shell
         const matRed = new THREE.MeshBasicMaterial({ color: 0xf85149, transparent: true, opacity: 0.4 }); // Skin
@@ -83,6 +83,7 @@
         const matGold = new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: false });              // Queen (Solid Gold)
         const matSilver = new THREE.MeshBasicMaterial({ color: 0xc0c0c0, transparent: true, opacity: 0.8 }); // Prince (Silver)
         const matCyan = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 }); // Scepter (Cyan)
+        const matPurple = new THREE.MeshBasicMaterial({ color: 0x9d4edd, transparent: true, opacity: 0.9 }); // Oracle (Purple)
 
         // Group to hold all cells
         const latticeGroup = new THREE.Group();
@@ -143,6 +144,7 @@
                 if (type === 4) mat = matGold;   // Queen
                 if (type === 5) mat = matSilver; // Prince
                 if (type === 6) mat = matCyan;   // Scepter
+                if (type === 7) mat = matPurple; // Oracle
 
                 const cube = new THREE.Mesh(geometry, mat);
                 cube.position.set(x, y, z);

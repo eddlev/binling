@@ -4,6 +4,8 @@ use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
 
+//REDUNDANT. DO NOT USE UNLESS TESTING SPECIFIC CELL STRUCTURE.
+
 fn main() -> std::io::Result<()> {
     println!("=== BinLing Client (Blindfire Mode) ===");
 
