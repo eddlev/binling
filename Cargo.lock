@@ -46,6 +46,8 @@ version = "0.1.0"
 dependencies = [
  "binling_core",
  "console_error_panic_hook",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
 ]
 

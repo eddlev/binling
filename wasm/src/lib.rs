@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 // This attribute makes the function run when the WASM module loads
 #[wasm_bindgen(start)]
 pub fn main_js() -> Result<(), JsValue> {
-    // This allows Rust panic messages to appear in the browser console (very helpful!)
+    // This allows Rust panic messages to appear in the browser console
     console_error_panic_hook::set_once();
     Ok(())
 }
@@ -21,7 +21,10 @@ impl WebLattice {
     // Constructor: JS calls "new WebLattice()"
     #[wasm_bindgen(constructor)]
     pub fn new() -> WebLattice {
-        let mut vm = LatticeVM::new();
+        // --- FIX IS HERE ---
+        // We now provide a default name for the browser instance
+        let mut vm = LatticeVM::new("web-local".to_string());
+        // -------------------
 
         // Let's inject a "Genesis Capsule" just like in the CLI
         let genesis = Capsule {
@@ -30,22 +33,22 @@ impl WebLattice {
                 version_major: 0,
                 version_minor: 1,
                 flags: 0,
+                capsule_id: 777,
                 ss_n: SquareSpace::SS64,
                 priority: 10,
-                header_len: 0,
-                policy_len: 0,
-                payload_len: 0,
-                pad_len: 0,
                 coord_x: 0,
                 coord_y: 0,
                 coord_z: 0,
-                capsule_id: 1,
+                header_len: 122,
+                policy_len: 0,
+                payload_len: 10,
+                pad_len: 0,
                 dict_hash: [0; 32],
                 policy_core_hash: [0; 32],
                 capsule_hash: [0; 32],
             },
             policy_core: vec![],
-            payload: vec![0x12, 0x30, 0xFF], // INC, SPAWN, HALT
+            payload: vec![7u8; 4096], // 4096 SPAWN commands
         };
 
         vm.activate(genesis);
@@ -53,25 +56,35 @@ impl WebLattice {
         WebLattice { vm }
     }
 
-    // JS calls "lattice.tick()"
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> String {
         if !self.vm.is_void() {
             self.vm.next_cycle();
         }
+
+        // We return a JSON string to JS (Simple serialization)
+        // Note: For high performance, we would use shared memory, but this is fine for v1.
+        let cell_data: Vec<(i32, i32, i32, u8)> = self
+            .vm
+            .next_queue
+            .iter()
+            .map(|c| {
+                (
+                    c.header.coord_x as i32,
+                    c.header.coord_y as i32,
+                    c.header.coord_z as i32,
+                    c.header.flags as u8,
+                )
+            })
+            .collect();
+
+        serde_json::to_string(&cell_data).unwrap_or("[]".to_string())
     }
 
-    // JS calls "lattice.get_status()" to get a string report
-    pub fn get_status(&self) -> String {
-        format!(
-            "Cycle: {} | Active Cells: {} | Next Gen: {}",
-            self.vm.cycle_count,
-            self.vm.active_queue.len(),
-            self.vm.next_queue.len()
-        )
+    pub fn get_cycle(&self) -> u64 {
+        self.vm.cycle_count
     }
 
-    // JS calls "lattice.get_active_cell_count()"
-    pub fn get_active_cell_count(&self) -> usize {
-        self.vm.active_queue.len()
+    pub fn get_count(&self) -> usize {
+        self.vm.next_queue.len()
     }
 }
