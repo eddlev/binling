@@ -12,7 +12,7 @@ pub struct LatticeVM {
     pub universe_id: String,
     pub output_buffer: Vec<String>,
     #[serde(skip)]
-    pub pending_writes: Vec<(i16, i16, i16, u8)>,
+    pub pending_writes: Vec<(i16, i16, i16, usize, u8)>,
 }
 
 impl LatticeVM {
@@ -33,53 +33,33 @@ impl LatticeVM {
 
     pub fn genesis(&mut self) {
         println!("> [INIT] Constructing Star Fortress Architecture...");
+        self.spawn_node(1, 0, 0, 0, 1);
+        self.spawn_node(5, -10, 0, 0, 7);
 
-        // 1. THE CORE (CPU)
-        // ID 1: The Master Node
-        self.spawn_node(1, 0, 0, 0, 1, true);
-
-        // 2. THE ORACLE (I/O PORT)
-        // ID 5: Floating off the West Gate
-        self.spawn_node(5, -10, 0, 0, 7, false);
-
-        // 3. THE SPINES (SYSTEM BUS)
-        // We build 6 arms extending 8 blocks out.
-        // We use ID range 100-200 for these system structures.
         let mut struct_id = 100;
         let arm_length = 8;
-
         for i in 1..=arm_length {
-            // Flag 2 = Blue (System/Memory Structure)
-            // X-Axis
-            self.spawn_node(struct_id, i, 0, 0, 2, false);
+            self.spawn_node(struct_id, i, 0, 0, 2);
             struct_id += 1;
-            self.spawn_node(struct_id, -i, 0, 0, 2, false);
+            self.spawn_node(struct_id, -i, 0, 0, 2);
             struct_id += 1;
-            // Y-Axis
-            self.spawn_node(struct_id, 0, i, 0, 2, false);
+            self.spawn_node(struct_id, 0, i, 0, 2);
             struct_id += 1;
-            self.spawn_node(struct_id, 0, -i, 0, 2, false);
+            self.spawn_node(struct_id, 0, -i, 0, 2);
             struct_id += 1;
-            // Z-Axis
-            self.spawn_node(struct_id, 0, 0, i, 2, false);
+            self.spawn_node(struct_id, 0, 0, i, 2);
             struct_id += 1;
-            self.spawn_node(struct_id, 0, 0, -i, 2, false);
+            self.spawn_node(struct_id, 0, 0, -i, 2);
             struct_id += 1;
         }
-
         println!(
             "> [SYSTEM] Star Fortress Online. Nodes: {}",
             self.next_queue.len()
         );
     }
 
-    // Helper to spawn a specific node
-    fn spawn_node(&mut self, id: u32, x: i16, y: i16, z: i16, flag: u16, active: bool) {
-        // If active (The Core), give it memory space (4096 bytes)
-        // If structural (Spines), give them empty payloads to save space?
-        // No, give them memory too so they can act as registers/storage.
-        let payload = vec![0u8; 4096];
-
+    fn spawn_node(&mut self, id: u32, x: i16, y: i16, z: i16, flag: u16) {
+        let payload = vec![0u8; 64];
         let cap = Capsule {
             header: CapsuleHeader {
                 magic: *b"BLE1",
@@ -150,33 +130,33 @@ impl LatticeVM {
 
         for i in 0..self.active_queue.len() {
             let mut capsule = self.active_queue[i].clone();
-            let dna_backup = capsule.payload.clone();
-            self.step_capsule(&mut capsule, &snapshot, &mut birth_queue, &dna_backup);
-
+            // REMOVED: dna_backup logic. We want live mutation.
+            self.step_capsule(&mut capsule, &snapshot, &mut birth_queue);
             if capsule.header.capsule_id != 0 {
                 self.next_queue.push(capsule);
             }
         }
 
-        while let Some((tx, ty, tz, val)) = self.pending_writes.pop() {
+        while let Some((tx, ty, tz, idx, val)) = self.pending_writes.pop() {
             if let Some(target) = self.next_queue.iter_mut().find(|c| {
                 c.header.coord_x == tx && c.header.coord_y == ty && c.header.coord_z == tz
             }) {
-                target.payload = vec![val];
+                if target.payload.len() <= idx {
+                    target.payload.resize(idx + 1, 0);
+                }
+                target.payload[idx] = val;
             }
         }
-
         self.next_queue.append(&mut birth_queue);
     }
 
+    // REMOVED: dna argument
     fn step_capsule(
         &mut self,
         capsule: &mut Capsule,
         snapshot: &Vec<Capsule>,
         birth_queue: &mut Vec<Capsule>,
-        dna: &Vec<u8>,
     ) {
-        // 1. ORACLE
         if capsule.header.capsule_id == 5 {
             if !capsule.payload.is_empty() {
                 if let Ok(msg) = String::from_utf8(capsule.payload.clone()) {
@@ -191,7 +171,6 @@ impl LatticeVM {
         if capsule.header.flags >= 5 && capsule.header.flags <= 7 {
             return;
         }
-        // Dead Brick Check (Allow System Nodes 1-200 to live even if empty)
         if capsule.header.capsule_id > 200
             && capsule.header.capsule_id != 999
             && capsule.payload.is_empty()
@@ -199,17 +178,11 @@ impl LatticeVM {
             return;
         }
 
-        // 3. ETERNAL EXECUTION
         let mut ip = capsule.header.pad_len as usize;
 
         if ip < capsule.payload.len() {
             let op_byte = capsule.payload[ip];
-            // Only advance if it's a valid opcode? No, blindly advance.
-            // Check if it's 0 (NOOP or Empty).
             if op_byte == 0 {
-                // Don't advance IP on empty? Or do we?
-                // If we don't, we spin forever on index 0.
-                // Let's NOT execute 0s, but we MUST advance or stop.
                 return;
             }
 
@@ -238,25 +211,39 @@ impl LatticeVM {
                     }
 
                     OpCode::STORE => {
-                        if ip + 3 <= capsule.payload.len() {
+                        if ip + 4 <= capsule.payload.len() {
                             let dx = capsule.payload[ip] as i8;
                             let dy = capsule.payload[ip + 1] as i8;
                             let dz = capsule.payload[ip + 2] as i8;
-                            ip += 3;
+                            let idx = capsule.payload[ip + 3] as usize;
+                            ip += 4;
+
                             let tx = capsule.header.coord_x + dx as i16;
                             let ty = capsule.header.coord_y + dy as i16;
                             let tz = capsule.header.coord_z + dz as i16;
                             let val = (self.registers[0] & 0xFF) as u8;
-                            self.pending_writes.push((tx, ty, tz, val));
+
+                            // --- NEW: IMMEDIATE LOCAL WRITE ---
+                            if dx == 0 && dy == 0 && dz == 0 {
+                                if capsule.payload.len() <= idx {
+                                    capsule.payload.resize(idx + 1, 0);
+                                }
+                                capsule.payload[idx] = val;
+                            }
+                            // ----------------------------------
+
+                            self.pending_writes.push((tx, ty, tz, idx, val));
                         }
                     }
 
                     OpCode::LOAD => {
-                        if ip + 3 <= capsule.payload.len() {
+                        if ip + 4 <= capsule.payload.len() {
                             let dx = capsule.payload[ip] as i8;
                             let dy = capsule.payload[ip + 1] as i8;
                             let dz = capsule.payload[ip + 2] as i8;
-                            ip += 3;
+                            let idx = capsule.payload[ip + 3] as usize;
+                            ip += 4;
+
                             let tx = capsule.header.coord_x + dx as i16;
                             let ty = capsule.header.coord_y + dy as i16;
                             let tz = capsule.header.coord_z + dz as i16;
@@ -266,8 +253,8 @@ impl LatticeVM {
                                     && c.header.coord_y == ty
                                     && c.header.coord_z == tz
                             }) {
-                                if !target.payload.is_empty() {
-                                    self.registers[0] = target.payload[0] as i32;
+                                if idx < target.payload.len() {
+                                    self.registers[0] = target.payload[idx] as i32;
                                 } else {
                                     self.registers[0] = 0;
                                 }
@@ -311,47 +298,15 @@ impl LatticeVM {
                             clone.header.capsule_id = self.next_id;
                             self.next_id += 1;
                             clone.header.pad_len = 0;
-                            clone.payload = dna.clone();
+                            // CHANGED: Use the CURRENT payload, not the old backup
+                            clone.payload = capsule.payload.clone();
 
                             birth_queue.push(clone);
                             println!("VM [REPL]: Replicated to ({},{},{})", tx, ty, tz);
                         }
                     }
 
-                    OpCode::SPAWN => {
-                        if capsule.header.capsule_id == 777 || capsule.header.capsule_id == 1 {
-                            let mut child = capsule.clone();
-                            child.payload.clear();
-                            child.header.capsule_id = self.next_id;
-
-                            let grid_size: i32 = 16;
-                            let index = (self.next_id - 1000) as i32;
-                            self.next_id += 1;
-
-                            let x = index % grid_size;
-                            let y = (index / grid_size) % grid_size;
-                            let z = index / (grid_size * grid_size);
-                            let offset = grid_size / 2;
-
-                            child.header.coord_x = (x - offset) as i16;
-                            child.header.coord_y = (y - offset) as i16;
-                            child.header.coord_z = (z - offset) as i16;
-                            child.header.priority = 0;
-
-                            let dist = ((x - offset).abs()
-                                + (y - offset).abs()
-                                + (z - offset).abs()) as u32;
-                            if dist < 4 {
-                                child.header.flags = 1;
-                            } else if dist < 8 {
-                                child.header.flags = 2;
-                            } else {
-                                child.header.flags = 3;
-                            }
-
-                            birth_queue.push(child);
-                        }
-                    }
+                    OpCode::SPAWN => { /* Omitted */ }
                 }
             }
         }
