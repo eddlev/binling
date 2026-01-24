@@ -32,17 +32,54 @@ impl LatticeVM {
     }
 
     pub fn genesis(&mut self) {
-        // TRINITY + ORACLE
-        self.spawn_system_node(1, -12, 0, 0, 4, true);
-        self.spawn_system_node(2, -12, 2, 0, 5, false);
-        self.spawn_system_node(3, -12, -2, 0, 5, false);
-        self.spawn_system_node(4, -11, 0, 0, 6, false);
-        self.spawn_system_node(5, -10, 0, 0, 7, false);
-        println!("> [MACF] Trinity Protocol & Oracle Initiated.");
+        println!("> [INIT] Constructing Star Fortress Architecture...");
+
+        // 1. THE CORE (CPU)
+        // ID 1: The Master Node
+        self.spawn_node(1, 0, 0, 0, 1, true);
+
+        // 2. THE ORACLE (I/O PORT)
+        // ID 5: Floating off the West Gate
+        self.spawn_node(5, -10, 0, 0, 7, false);
+
+        // 3. THE SPINES (SYSTEM BUS)
+        // We build 6 arms extending 8 blocks out.
+        // We use ID range 100-200 for these system structures.
+        let mut struct_id = 100;
+        let arm_length = 8;
+
+        for i in 1..=arm_length {
+            // Flag 2 = Blue (System/Memory Structure)
+            // X-Axis
+            self.spawn_node(struct_id, i, 0, 0, 2, false);
+            struct_id += 1;
+            self.spawn_node(struct_id, -i, 0, 0, 2, false);
+            struct_id += 1;
+            // Y-Axis
+            self.spawn_node(struct_id, 0, i, 0, 2, false);
+            struct_id += 1;
+            self.spawn_node(struct_id, 0, -i, 0, 2, false);
+            struct_id += 1;
+            // Z-Axis
+            self.spawn_node(struct_id, 0, 0, i, 2, false);
+            struct_id += 1;
+            self.spawn_node(struct_id, 0, 0, -i, 2, false);
+            struct_id += 1;
+        }
+
+        println!(
+            "> [SYSTEM] Star Fortress Online. Nodes: {}",
+            self.next_queue.len()
+        );
     }
 
-    fn spawn_system_node(&mut self, id: u32, x: i16, y: i16, z: i16, flag: u16, active: bool) {
-        let payload = if active { vec![7u8; 4096] } else { vec![] };
+    // Helper to spawn a specific node
+    fn spawn_node(&mut self, id: u32, x: i16, y: i16, z: i16, flag: u16, active: bool) {
+        // If active (The Core), give it memory space (4096 bytes)
+        // If structural (Spines), give them empty payloads to save space?
+        // No, give them memory too so they can act as registers/storage.
+        let payload = vec![0u8; 4096];
+
         let cap = Capsule {
             header: CapsuleHeader {
                 magic: *b"BLE1",
@@ -113,7 +150,6 @@ impl LatticeVM {
 
         for i in 0..self.active_queue.len() {
             let mut capsule = self.active_queue[i].clone();
-            // We pass a clone of the payload to step_capsule so it can 'REPL' itself
             let dna_backup = capsule.payload.clone();
             self.step_capsule(&mut capsule, &snapshot, &mut birth_queue, &dna_backup);
 
@@ -155,9 +191,9 @@ impl LatticeVM {
         if capsule.header.flags >= 5 && capsule.header.flags <= 7 {
             return;
         }
-        if capsule.header.capsule_id != 777
+        // Dead Brick Check (Allow System Nodes 1-200 to live even if empty)
+        if capsule.header.capsule_id > 200
             && capsule.header.capsule_id != 999
-            && capsule.header.capsule_id > 100
             && capsule.payload.is_empty()
         {
             return;
@@ -168,6 +204,15 @@ impl LatticeVM {
 
         if ip < capsule.payload.len() {
             let op_byte = capsule.payload[ip];
+            // Only advance if it's a valid opcode? No, blindly advance.
+            // Check if it's 0 (NOOP or Empty).
+            if op_byte == 0 {
+                // Don't advance IP on empty? Or do we?
+                // If we don't, we spin forever on index 0.
+                // Let's NOT execute 0s, but we MUST advance or stop.
+                return;
+            }
+
             ip += 1;
 
             if let Some(op) = OpCode::from_u8(op_byte) {
@@ -203,7 +248,6 @@ impl LatticeVM {
                             let tz = capsule.header.coord_z + dz as i16;
                             let val = (self.registers[0] & 0xFF) as u8;
                             self.pending_writes.push((tx, ty, tz, val));
-                            // println!("VM [STORE]: Queued write {} to ({},{},{})", val, tx, ty, tz);
                         }
                     }
 
@@ -224,7 +268,6 @@ impl LatticeVM {
                             }) {
                                 if !target.payload.is_empty() {
                                     self.registers[0] = target.payload[0] as i32;
-                                    // println!("VM [LOAD]: Read {} from ({},{},{})", self.registers[0], tx, ty, tz);
                                 } else {
                                     self.registers[0] = 0;
                                 }
@@ -250,9 +293,7 @@ impl LatticeVM {
                         }
                     }
 
-                    // --- THE REPLICATOR (PHASE 4) ---
                     OpCode::REPL => {
-                        // REPL [dx] [dy] [dz] -> Copies SELF to Target
                         if ip + 3 <= capsule.payload.len() {
                             let dx = capsule.payload[ip] as i8;
                             let dy = capsule.payload[ip + 1] as i8;
@@ -263,29 +304,14 @@ impl LatticeVM {
                             let ty = capsule.header.coord_y + dy as i16;
                             let tz = capsule.header.coord_z + dz as i16;
 
-                            // We need to write into the FUTURE (next_queue)
-                            // But unlike STORE (which queues a byte), this writes a WHOLE PROGRAM
-                            // We can do this directly here because we hold mutable ref to self.
-                            // NOTE: This runs immediately, not at end of cycle.
-                            // We find the target in next_queue and INFECT it.
-
-                            // To avoid borrow checker hell (we are iterating active_queue elsewhere),
-                            // we scan `birth_queue`? No. We need to push a NEW capsule to birth_queue?
-                            // Or find the existing cell in next_queue?
-
-                            // Simplest way: Birth a new capsule that OVERWRITES the location.
-                            // The VM loop will sort it out (last one wins?).
-                            // Better: We actually want to overwrite the existing cell structure.
-
-                            // Let's use the 'birth_queue' to spawn a CLONE at that location.
                             let mut clone = capsule.clone();
                             clone.header.coord_x = tx;
                             clone.header.coord_y = ty;
                             clone.header.coord_z = tz;
-                            clone.header.capsule_id = self.next_id; // Unique ID
+                            clone.header.capsule_id = self.next_id;
                             self.next_id += 1;
-                            clone.header.pad_len = 0; // RESET IP (Start fresh)
-                            clone.payload = dna.clone(); // Copy the pure DNA
+                            clone.header.pad_len = 0;
+                            clone.payload = dna.clone();
 
                             birth_queue.push(clone);
                             println!("VM [REPL]: Replicated to ({},{},{})", tx, ty, tz);
@@ -293,7 +319,6 @@ impl LatticeVM {
                     }
 
                     OpCode::SPAWN => {
-                        // Full Logic Restored
                         if capsule.header.capsule_id == 777 || capsule.header.capsule_id == 1 {
                             let mut child = capsule.clone();
                             child.payload.clear();
