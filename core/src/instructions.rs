@@ -5,12 +5,22 @@ use serde::{Deserialize, Serialize};
 pub enum OpCode {
     NOOP = 0,
     HALT = 1,
-    ADD = 2,
-    SUB = 3,
-    INC = 4,
-    DEC = 5,
-    LOG = 6,
-    SPAWN = 7, // <--- CRITICAL: Must be 7 to match Client
+    // MATH
+    ADD = 3,
+    SUB = 4,
+    INC = 5,
+    DEC = 6,
+    // I/O
+    LOG = 7,
+    SPAWN = 8,
+    // MEMORY
+    STORE = 9,
+    LOAD = 10,
+    // CONTROL
+    JMP = 11,
+    BEQ = 12,
+    // LIFE
+    REPL = 13, // Replicate (Viral Copy)
 }
 
 impl OpCode {
@@ -18,12 +28,17 @@ impl OpCode {
         match v {
             0 => Some(OpCode::NOOP),
             1 => Some(OpCode::HALT),
-            2 => Some(OpCode::ADD),
-            3 => Some(OpCode::SUB),
-            4 => Some(OpCode::INC),
-            5 => Some(OpCode::DEC),
-            6 => Some(OpCode::LOG),
-            7 => Some(OpCode::SPAWN),
+            3 => Some(OpCode::ADD),
+            4 => Some(OpCode::SUB),
+            5 => Some(OpCode::INC),
+            6 => Some(OpCode::DEC),
+            7 => Some(OpCode::LOG),
+            8 => Some(OpCode::SPAWN),
+            9 => Some(OpCode::STORE),
+            10 => Some(OpCode::LOAD),
+            11 => Some(OpCode::JMP),
+            12 => Some(OpCode::BEQ),
+            13 => Some(OpCode::REPL),
             _ => None,
         }
     }

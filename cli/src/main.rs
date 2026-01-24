@@ -1,4 +1,5 @@
 use binling_core::capsules::{Capsule, CapsuleHeader, SquareSpace};
+use binling_core::instructions::OpCode;
 use binling_core::vm::LatticeVM;
 use serde_json::json;
 use std::env;
@@ -11,9 +12,45 @@ use tokio::sync::broadcast;
 
 mod ws_server;
 
+// --- THE ROSETTA STONE (ASSEMBLER) ---
+fn compile_line(line: &str) -> Vec<u8> {
+    let parts: Vec<&str> = line.trim().split_whitespace().collect();
+    let mut bytecode = Vec::new();
+
+    for part in parts {
+        match part.to_uppercase().as_str() {
+            // INSTRUCTIONS
+            "NOOP" => bytecode.push(OpCode::NOOP as u8), // 0
+            "HALT" => bytecode.push(OpCode::HALT as u8), // 1
+            "ADD" => bytecode.push(OpCode::ADD as u8),   // 3
+            "SUB" => bytecode.push(OpCode::SUB as u8),   // 4
+            "INC" => bytecode.push(OpCode::INC as u8),   // 5
+            "DEC" => bytecode.push(OpCode::DEC as u8),   // 6
+            "LOG" => bytecode.push(OpCode::LOG as u8),   // 7
+            "SPAWN" => bytecode.push(OpCode::SPAWN as u8), // 8
+            "STORE" => bytecode.push(OpCode::STORE as u8), // 9
+            "LOAD" => bytecode.push(OpCode::LOAD as u8), // 10
+            "JMP" => bytecode.push(OpCode::JMP as u8),   // 11
+            "BEQ" => bytecode.push(OpCode::BEQ as u8),   // 12
+            "REPL" => bytecode.push(OpCode::REPL as u8), // 13
+
+            // NUMBERS (LITERALS - NOW SUPPORTS NEGATIVES)
+            _ => {
+                // Parse as i8 (allows -128 to 127) then cast to u8 byte
+                if let Ok(num) = part.parse::<i8>() {
+                    bytecode.push(num as u8);
+                } else {
+                    println!("!! [ASM ERROR] Unknown Token: {}", part);
+                }
+            }
+        }
+    }
+    bytecode
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== BinLing CLI v1.1 (Full I/O) ===");
+    println!("=== BinLing CLI v1.4 (Memory Enabled) ===");
 
     // 1. DETERMINE IDENTITY
     let args: Vec<String> = env::args().collect();
@@ -88,49 +125,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // 6. START THE ORACLE WATCHER (File System Bridge)
+    // 6. START THE ORACLE WATCHER (With Compiler)
     let vm_for_oracle = vm.clone();
     let input_path = input_file.clone();
 
     tokio::spawn(async move {
-        println!("> [ORACLE] Watching for input in: {}", input_path);
+        println!("> [ORACLE] Watching for ASSEMBLY in: {}", input_path);
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
             if Path::new(&input_path).exists() {
                 if let Ok(content) = fs::read_to_string(&input_path) {
                     if !content.trim().is_empty() {
-                        println!(">> [ORACLE] Input Detected: '{}'", content.trim());
+                        println!(">> [ASM] Compiling: '{}'", content.trim());
 
-                        let payload = content.trim().as_bytes().to_vec(); // Trim whitespace
+                        let payload = compile_line(&content);
 
-                        let capsule = Capsule {
-                            header: CapsuleHeader {
-                                magic: *b"BLE1",
-                                version_major: 0,
-                                version_minor: 1,
-                                flags: 7,
-                                capsule_id: 5, // Target: Oracle
-                                ss_n: SquareSpace::SS64,
-                                priority: 100,
-                                coord_x: -10,
-                                coord_y: 0,
-                                coord_z: 0,
-                                header_len: 0,
-                                policy_len: 0,
-                                payload_len: payload.len() as u32,
-                                pad_len: 0,
-                                dict_hash: [0; 32],
-                                policy_core_hash: [0; 32],
-                                capsule_hash: [0; 32],
-                            },
-                            policy_core: vec![],
-                            payload: payload,
-                        };
+                        if !payload.is_empty() {
+                            let payload_len = payload.len();
 
-                        {
-                            let mut locked_vm = vm_for_oracle.lock().unwrap();
-                            locked_vm.activate(capsule);
+                            // --- TARGET: ID 999 (USER SPACE CORE RUNNER) ---
+                            let capsule = Capsule {
+                                header: CapsuleHeader {
+                                    magic: *b"BLE1",
+                                    version_major: 0,
+                                    version_minor: 1,
+                                    flags: 1,
+                                    capsule_id: 999,
+                                    ss_n: SquareSpace::SS64,
+                                    priority: 100,
+                                    coord_x: 0,
+                                    coord_y: 0,
+                                    coord_z: 0, // In the Core
+                                    header_len: 0,
+                                    policy_len: 0,
+                                    payload_len: payload_len as u32,
+                                    pad_len: 0,
+                                    dict_hash: [0; 32],
+                                    policy_core_hash: [0; 32],
+                                    capsule_hash: [0; 32],
+                                },
+                                policy_core: vec![],
+                                payload: payload,
+                            };
+
+                            {
+                                let mut locked_vm = vm_for_oracle.lock().unwrap();
+                                locked_vm.activate(capsule);
+                            }
+
+                            println!(">> [ORACLE] Injected {} bytes to CORE.", payload_len);
                         }
 
                         let _ = fs::write(&input_path, "");
@@ -152,24 +196,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             let mut vm = vm.lock().unwrap();
 
-            // --- OUTPUT BRIDGE (The "Mouth" Writer) ---
+            // OUTPUT BRIDGE
             if !vm.output_buffer.is_empty() {
                 for msg in vm.output_buffer.drain(..) {
-                    println!("<< [ORACLE] Output Generated: '{}'", msg);
-                    // Append to file (Log style)
+                    println!("<< [ORACLE] Output: '{}'", msg);
                     use std::io::Write;
                     if let Ok(mut file) = fs::OpenOptions::new()
                         .create(true)
                         .append(true)
                         .open(&output_file)
                     {
-                        if let Err(e) = writeln!(file, "{}", msg) {
-                            eprintln!("!! [IO ERROR] Could not write output: {}", e);
-                        }
+                        let _ = writeln!(file, "{}", msg);
                     }
                 }
             }
-            // ------------------------------------------
 
             // Cast u16 flag to u8
             let cell_data: Vec<(i32, i32, i32, u8)> = vm
@@ -197,10 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 vm.next_cycle();
 
                 if vm.cycle_count % 50 == 0 {
-                    match vm.save_world(&filename) {
-                        Ok(_) => {}
-                        Err(e) => eprintln!("!! [ERROR] Failed to save: {}", e),
-                    }
+                    let _ = vm.save_world(&filename);
                 }
             }
         }
