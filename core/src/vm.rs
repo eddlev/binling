@@ -130,7 +130,6 @@ impl LatticeVM {
 
         for i in 0..self.active_queue.len() {
             let mut capsule = self.active_queue[i].clone();
-            // REMOVED: dna_backup logic. We want live mutation.
             self.step_capsule(&mut capsule, &snapshot, &mut birth_queue);
             if capsule.header.capsule_id != 0 {
                 self.next_queue.push(capsule);
@@ -150,7 +149,6 @@ impl LatticeVM {
         self.next_queue.append(&mut birth_queue);
     }
 
-    // REMOVED: dna argument
     fn step_capsule(
         &mut self,
         capsule: &mut Capsule,
@@ -223,15 +221,13 @@ impl LatticeVM {
                             let tz = capsule.header.coord_z + dz as i16;
                             let val = (self.registers[0] & 0xFF) as u8;
 
-                            // --- NEW: IMMEDIATE LOCAL WRITE ---
+                            // [FIX 1: IMMEDIATE LOCAL WRITE]
                             if dx == 0 && dy == 0 && dz == 0 {
                                 if capsule.payload.len() <= idx {
                                     capsule.payload.resize(idx + 1, 0);
                                 }
                                 capsule.payload[idx] = val;
                             }
-                            // ----------------------------------
-
                             self.pending_writes.push((tx, ty, tz, idx, val));
                         }
                     }
@@ -244,19 +240,28 @@ impl LatticeVM {
                             let idx = capsule.payload[ip + 3] as usize;
                             ip += 4;
 
-                            let tx = capsule.header.coord_x + dx as i16;
-                            let ty = capsule.header.coord_y + dy as i16;
-                            let tz = capsule.header.coord_z + dz as i16;
-
-                            if let Some(target) = snapshot.iter().find(|c| {
-                                c.header.coord_x == tx
-                                    && c.header.coord_y == ty
-                                    && c.header.coord_z == tz
-                            }) {
-                                if idx < target.payload.len() {
-                                    self.registers[0] = target.payload[idx] as i32;
+                            // [FIX 2: READ SELF DIRECTLY]
+                            if dx == 0 && dy == 0 && dz == 0 {
+                                if idx < capsule.payload.len() {
+                                    self.registers[0] = capsule.payload[idx] as i32;
                                 } else {
                                     self.registers[0] = 0;
+                                }
+                            } else {
+                                let tx = capsule.header.coord_x + dx as i16;
+                                let ty = capsule.header.coord_y + dy as i16;
+                                let tz = capsule.header.coord_z + dz as i16;
+
+                                if let Some(target) = snapshot.iter().find(|c| {
+                                    c.header.coord_x == tx
+                                        && c.header.coord_y == ty
+                                        && c.header.coord_z == tz
+                                }) {
+                                    if idx < target.payload.len() {
+                                        self.registers[0] = target.payload[idx] as i32;
+                                    } else {
+                                        self.registers[0] = 0;
+                                    }
                                 }
                             }
                         }
@@ -298,7 +303,6 @@ impl LatticeVM {
                             clone.header.capsule_id = self.next_id;
                             self.next_id += 1;
                             clone.header.pad_len = 0;
-                            // CHANGED: Use the CURRENT payload, not the old backup
                             clone.payload = capsule.payload.clone();
 
                             birth_queue.push(clone);
@@ -306,7 +310,11 @@ impl LatticeVM {
                         }
                     }
 
-                    OpCode::SPAWN => { /* Omitted */ }
+                    OpCode::VOID => {
+                        capsule.header.capsule_id = 0;
+                    }
+
+                    OpCode::SPAWN => {}
                 }
             }
         }

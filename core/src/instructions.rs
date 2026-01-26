@@ -5,22 +5,18 @@ use serde::{Deserialize, Serialize};
 pub enum OpCode {
     NOOP = 0,
     HALT = 1,
-    // MATH
     ADD = 3,
     SUB = 4,
     INC = 5,
     DEC = 6,
-    // I/O
     LOG = 7,
     SPAWN = 8,
-    // MEMORY
     STORE = 9,
     LOAD = 10,
-    // CONTROL
     JMP = 11,
     BEQ = 12,
-    // LIFE
-    REPL = 13, // Replicate (Viral Copy)
+    REPL = 13,
+    VOID = 14, // NEW: Suicide / Delete Self
 }
 
 impl OpCode {
@@ -39,6 +35,7 @@ impl OpCode {
             11 => Some(OpCode::JMP),
             12 => Some(OpCode::BEQ),
             13 => Some(OpCode::REPL),
+            14 => Some(OpCode::VOID),
             _ => None,
         }
     }

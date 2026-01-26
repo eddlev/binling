@@ -33,6 +33,7 @@ fn compile_line(line: &str) -> Vec<u8> {
             "JMP" => bytecode.push(OpCode::JMP as u8),   // 11
             "BEQ" => bytecode.push(OpCode::BEQ as u8),   // 12
             "REPL" => bytecode.push(OpCode::REPL as u8), // 13
+            "VOID" => bytecode.push(OpCode::VOID as u8), // 14
 
             // NUMBERS (LITERALS - NOW SUPPORTS NEGATIVES)
             _ => {
