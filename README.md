@@ -11,6 +11,11 @@ Standard AI Agents rely on "Chain of Thought" (CoT) in natural language to execu
 
 **BinLing** proves that by constraining an LLM's latent space to a low-fertility instruction set, we can achieve **deterministic, physics-compliant behavior**.
 
+### 🧠 Theoretical Basis
+BinLing implements a **Von Neumann Universal Constructor** architecture. 
+The `REPL` opcode functions as a kinematic self-replicator, treating the execution lattice as a resource substrate. 
+This makes the Swarm Probe a true **Von Neumann Probe**—an autonomous agent capable of exponential replication via in-situ resource utilization.
+
 **The Stack:**
 * **Intelligence:** Qwen 2.5 7B (acting as a Compiler).
 * **Bridge:** Python Driver enforcing strict schema constraints.
