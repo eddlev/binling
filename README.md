@@ -1,9 +1,5 @@
 # BinLing (BLE): Deterministic Agent Control via Geometric Latent Space
 
-### 🎥 Watch the Demo
-[![Green Swarm Visualization](./proof of concept/poc_visualization.png)](./proof of concept/Binling_proof_of_concept.mp4)
-*> **Click the image above** to download and view the full proof-of-concept video (MKV).*
-
 > **"English is too fuzzy for physics. We need an Agent that thinks in Assembly."**
 
 ![Green Swarm Visualization] 
