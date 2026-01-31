@@ -1,5 +1,10 @@
 # BinLing Encoding v0.1 (BLE)
 
+> **NOTE ON ASSEMBLY VS ENCODING:**
+> This document defines the **Wire-Level Format** (Machine Code). 
+> For human and LLM interaction, we use **BinLing Assembly (BASM)**, which uses mnemonics (e.g., `LOAD`, `REPL`, `VOID`) instead of raw ASCII symbols. 
+> The `binling_cli` tool acts as an Assembler, translating BASM text into the BLE format defined below.
+
 **Status:** Draft — targeting BinLing v0.1 specification freeze.
 
 This document defines the **normative wire-level encoding** for BinLing capsules.
