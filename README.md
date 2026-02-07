@@ -60,4 +60,19 @@ During our v0.1 benchmarks, we observed a critical distinction between **Token E
 * [ ] **Visual Tokenization:** Mapping opcodes to single pixels (v2.0).
 
 ## License
-MIT License - Open Source for the advancement of Deterministic AI.
+
+**BinLing** is open-source software licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+### Important Notice on Licensing
+* **Versions released prior to [February 7, 2026]:** Available under the MIT License.
+* **Versions released after [February 7, 2026]:** Licensed under AGPL-3.0.
+
+### Commercial Licensing
+If you wish to use BinLing in a proprietary, closed-source, or commercial environment where compliance with the AGPL-3.0 (which requires open-sourcing your backend) is not feasible, **Commercial Licenses are available.**
+
+Commercial Licenses include:
+* Exemption from AGPL copyleft requirements.
+* Indemnification against IP claims.
+* Enterprise Support & SLAs.
+
+For commercial licensing inquiries, please contact: **[contact@vm4ai.com]**.
